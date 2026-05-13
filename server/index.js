@@ -134,7 +134,7 @@ async function findPublishedArticleBySlug(slug) {
 }
 
 function injectArticleMeta(html, article, req) {
-  const version = encodeURIComponent(article.updated_at || article.created_at || Date.now());
+  const version = Date.parse(article.updated_at || article.created_at) || Date.now();
   const articleUrl = absoluteUrl(req, `/articles/${article.slug}`);
   const imageUrl = absoluteUrl(req, `/api/articles/${article.slug}/og-image?v=${version}`);
   const title = `${article.title} | CiteDrop`;
@@ -147,6 +147,8 @@ function injectArticleMeta(html, article, req) {
     <meta property="og:description" content="${escapeHtml(description)}" />
     <meta property="og:url" content="${escapeHtml(articleUrl)}" />
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -161,6 +163,8 @@ function injectArticleMeta(html, article, req) {
     'og:description',
     'og:url',
     'og:image',
+    'og:image:secure_url',
+    'og:image:type',
     'og:image:width',
     'og:image:height',
     'twitter:card',

@@ -9,6 +9,7 @@ import SourceList from '../components/SourceList.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticle } from '../lib/api.js';
 import { formatDate } from '../utils/format.js';
+import { articleUrl } from '../utils/links.js';
 
 export default function ArticlePage() {
   const { slug } = useParams();
@@ -47,14 +48,15 @@ export default function ArticlePage() {
   ], [claims.length, charts.length, sources.length]);
 
   async function copyLink() {
-    await navigator.clipboard.writeText(window.location.href);
+    await navigator.clipboard.writeText(articleUrl(article.slug));
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }
 
   async function share() {
+    const url = articleUrl(article.slug);
     if (navigator.share) {
-      await navigator.share({ title: article.title, text: article.summary, url: window.location.href });
+      await navigator.share({ title: article.title, text: article.summary, url });
     } else {
       copyLink();
     }

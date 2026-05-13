@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Copy, Eye, Send, Trash2, Undo2 } from 'lucide-react';
 import { deleteArticle, updateArticle } from '../lib/api.js';
 import { formatDate } from '../utils/format.js';
+import { articleUrl } from '../utils/links.js';
 
 export default function MyArticleTable({ articles, onChange }) {
   async function togglePublished(article) {
@@ -17,7 +18,7 @@ export default function MyArticleTable({ articles, onChange }) {
   }
 
   async function copyLink(article) {
-    await navigator.clipboard.writeText(`${window.location.origin}/articles/${article.slug}`);
+    await navigator.clipboard.writeText(articleUrl(article.slug));
   }
 
   return (
