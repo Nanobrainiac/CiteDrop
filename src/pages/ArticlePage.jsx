@@ -66,15 +66,15 @@ export default function ArticlePage() {
   return (
     <article>
       <header className="border-b border-white/10">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_380px] lg:px-8">
-          <div>
+        <div className="mx-auto grid max-w-7xl gap-6 overflow-x-hidden px-3 py-10 sm:px-6 sm:py-12 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3 text-sm text-white/48">
               <span className="rounded-full bg-acid px-3 py-1 font-black uppercase text-ink">{article.category}</span>
               <span>{formatDate(article.created_at)}</span>
               <span>{article.status}</span>
             </div>
-            <h1 className="mt-6 max-w-4xl text-4xl font-black leading-none sm:text-6xl">{article.title}</h1>
-            {article.subtitle ? <p className="mt-5 max-w-3xl text-xl leading-8 text-white/62">{article.subtitle}</p> : null}
+            <h1 className="mt-6 max-w-4xl break-words text-4xl font-black leading-none sm:text-6xl">{article.title}</h1>
+            {article.subtitle ? <p className="mt-5 max-w-3xl break-words text-lg leading-8 text-white/62 sm:text-xl">{article.subtitle}</p> : null}
             <div className="mt-8 flex flex-wrap gap-3">
               <button onClick={share} className="inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
                 <Share2 size={18} /> Share
@@ -88,19 +88,19 @@ export default function ArticlePage() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
-        <div className="space-y-8">
+      <div className="mx-auto grid max-w-7xl gap-6 overflow-x-hidden px-3 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
+        <div className="min-w-0 space-y-8">
           {sections.map((section, index) => (
-            <section key={`${section.heading}-${index}`} className="prose prose-invert max-w-none">
-              <h2 className="text-3xl font-black">{section.heading}</h2>
+            <section key={`${section.heading}-${index}`} className="max-w-none">
+              <h2 className="break-words text-2xl font-black sm:text-3xl">{section.heading}</h2>
               {(section.paragraphs || []).map((paragraph, paragraphIndex) => (
-                <p key={paragraphIndex} className="text-lg leading-8 text-white/70">{paragraph}</p>
+                <p key={paragraphIndex} className="mt-4 break-words text-base leading-8 text-white/70 sm:text-lg">{paragraph}</p>
               ))}
             </section>
           ))}
           <SourceList sources={sources} />
         </div>
-        <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
+        <aside className="min-w-0 space-y-6 lg:sticky lg:top-24 lg:self-start">
           <div className="glass-panel rounded-lg p-5">
             <p className="text-sm uppercase text-white/45">Brief summary</p>
             <p className="mt-4 text-base leading-7 text-white/72">{article.summary}</p>

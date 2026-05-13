@@ -19,11 +19,11 @@ export default function EvidenceScorePanel({ claims = [], charts = [], sources =
   ];
 
   return (
-    <section className="glass-panel chart-grid rounded-lg p-6">
-      <div className="rounded-lg border border-white/10 bg-black/30 p-5">
+    <section className="glass-panel chart-grid min-w-0 overflow-hidden rounded-lg p-4 sm:p-6">
+      <div className="rounded-lg border border-white/10 bg-black/30 p-4 sm:p-5">
         <p className="text-sm uppercase text-white/45">Claim Strength Index</p>
-        <div className="mt-4 flex items-end gap-3">
-          <span className="text-6xl font-black leading-none text-acid">{scoreLabel}</span>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <span className="text-5xl font-black leading-none text-acid sm:text-6xl">{scoreLabel}</span>
           <span className="pb-2 text-white/50">verified / qualified</span>
         </div>
         <div className="mt-8 grid grid-cols-5 gap-3">
@@ -31,7 +31,7 @@ export default function EvidenceScorePanel({ claims = [], charts = [], sources =
             <div key={index} className={`rounded-md ${className}`} />
           ))}
         </div>
-        <div className="mt-8 grid grid-cols-3 gap-3">
+        <div className="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
           <Metric icon={FileCheck2} value={claims.length} label="Claims" />
           <Metric icon={BarChart3} value={charts.length} label="Charts" />
           <Metric icon={ShieldCheck} value={sources.length} label="Sources" />
@@ -43,10 +43,10 @@ export default function EvidenceScorePanel({ claims = [], charts = [], sources =
 
 function Metric({ icon: Icon, value, label }) {
   return (
-    <div className="rounded-md bg-white/[0.04] p-3">
+    <div className="min-w-0 rounded-md bg-white/[0.04] p-2 sm:p-3">
       <Icon className="h-5 w-5 text-acid" />
-      <p className="mt-3 text-2xl font-black">{value}</p>
-      <p className="text-sm text-white/45">{label}</p>
+      <p className="mt-3 text-xl font-black sm:text-2xl">{value}</p>
+      <p className="text-xs text-white/45 sm:text-sm">{label}</p>
     </div>
   );
 }

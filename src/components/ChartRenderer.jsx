@@ -39,7 +39,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
         const type = chart.type || 'bar';
 
         return (
-          <article key={`${chart.title}-${index}`} className="glass-panel rounded-lg p-5">
+          <article key={`${chart.title}-${index}`} className="glass-panel min-w-0 overflow-hidden rounded-lg p-4 sm:p-5">
             <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-xl font-black">{chart.title}</h2>
@@ -47,7 +47,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
               </div>
               <span className="rounded-full bg-white/10 px-3 py-1 text-xs uppercase text-white/50">{type}</span>
             </div>
-            <div className="h-72 rounded-md border border-white/10 bg-black/25 p-3">
+            <div className="h-72 min-w-0 overflow-hidden rounded-md border border-white/10 bg-black/25 p-2 sm:p-3">
               <ResponsiveContainer width="100%" height="100%">
                 {type === 'line' ? (
                   <LineChart data={data}>
