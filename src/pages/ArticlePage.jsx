@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Copy, Share2 } from 'lucide-react';
+import { Copy, Send, Share2 } from 'lucide-react';
 import ChartRenderer from '../components/ChartRenderer.jsx';
 import ClaimList from '../components/ClaimList.jsx';
 import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
@@ -8,7 +8,7 @@ import LoadingState from '../components/LoadingState.jsx';
 import SectionTabs from '../components/SectionTabs.jsx';
 import SourceList from '../components/SourceList.jsx';
 import { demoArticles } from '../data/demoArticles.js';
-import { getArticle } from '../lib/api.js';
+import { getArticle, updateArticle } from '../lib/api.js';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
 
@@ -17,6 +17,8 @@ export default function ArticlePage() {
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [publishError, setPublishError] = useState('');
+  const [publishing, setPublishing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -70,6 +72,19 @@ export default function ArticlePage() {
     }
   }
 
+  async function publishArticle() {
+    setPublishing(true);
+    setPublishError('');
+    try {
+      const result = await updateArticle(article.id, { status: 'published' });
+      setArticle(result.article);
+    } catch (err) {
+      setPublishError(err.message);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   if (loading) return <LoadingState label="Loading article" />;
   if (error || !article) return <div className="mx-auto max-w-3xl px-4 py-20 text-white/65">{error || 'Article not found.'}</div>;
 
@@ -96,14 +111,26 @@ export default function ArticlePage() {
             </div>
             <h1 className="mt-6 max-w-4xl break-words text-4xl font-black leading-none sm:text-6xl">{article.title}</h1>
             {article.subtitle ? <p className="mt-5 max-w-3xl break-words text-lg leading-8 text-white/62 sm:text-xl">{article.subtitle}</p> : null}
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button onClick={share} className="inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
-                <Share2 size={18} /> Share
-              </button>
-              <button onClick={copyLink} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 font-bold text-white/75 hover:bg-white/10">
-                <Copy size={18} /> {copied ? 'Copied' : 'Copy link'}
-              </button>
-            </div>
+            {article.status === 'published' ? (
+              <div className="mt-8 flex flex-wrap gap-3">
+                <button onClick={share} className="inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
+                  <Share2 size={18} /> Share
+                </button>
+                <button onClick={copyLink} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 font-bold text-white/75 hover:bg-white/10">
+                  <Copy size={18} /> {copied ? 'Copied' : 'Copy link'}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-8">
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm font-semibold text-white/60">This article is still a draft. Publish it before sharing a public link.</p>
+                  <button disabled={publishing} onClick={publishArticle} className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
+                    <Send size={18} /> {publishing ? 'Publishing...' : 'Publish article'}
+                  </button>
+                  {publishError ? <p className="mt-3 rounded-md border border-ember/40 bg-ember/10 p-3 text-sm text-red-100">{publishError}</p> : null}
+                </div>
+              </div>
+            )}
             <SectionTabs items={sectionTabs} className="mt-6 rounded-lg lg:hidden" />
           </div>
           <EvidenceScorePanel claims={claims} charts={charts} sources={sources} />
