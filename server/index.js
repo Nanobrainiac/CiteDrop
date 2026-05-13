@@ -86,8 +86,9 @@ Rules:
 - Article body must be an array of sections with heading and paragraphs.
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
 - Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
-- Always include at least one chart. Charts must use simple JSON renderable as bar, line, area, or pie charts.
-- Prefer sourced quantitative data. If quantitative data is unavailable, create a qualitative evidence-coverage chart and clearly label it as qualitative or illustrative in the note.
+- Include 2 to 4 useful charts. Each chart must answer a specific question, state a takeaway, identify units, note source support, and name limitations.
+- Prefer sourced quantitative data for timeline, comparison, or outcome charts. If quantitative data is unavailable, create qualitative evidence maps such as claim support strength, source mix, timeline of sourced events, or argument coverage. Clearly label qualitative charts as qualitative or illustrative.
+- Charts must use simple JSON renderable as bar, line, area, or pie charts. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
 - Never cite a URL that was not actually consulted.`;
 
 const articleJsonShape = {
@@ -105,9 +106,14 @@ const articleJsonShape = {
   charts: [
     {
       title: 'Chart title',
+      question: 'Question this chart answers',
       type: 'bar',
+      takeaway: 'Main interpretation in one sentence',
+      units: 'Percent, dollars, index score, count, qualitative score, etc.',
+      sourceNote: 'Source basis for the chart',
+      limitation: 'Important caveat or uncertainty',
       note: 'What the chart shows and whether data is sourced or illustrative',
-      data: [{ label: 'A', value: 10 }]
+      data: [{ label: 'A', value: 10, group: 'Optional group', date: 'YYYY-MM-DD when relevant', source: 'Short source name', note: 'Optional datapoint note' }]
     }
   ],
   sources: [
@@ -210,7 +216,8 @@ function buildGenerationInput(input) {
       'Before writing, identify the core coverage requirements in the user prompt and ensure each is addressed explicitly.',
       'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
       'Every key claim must identify source support or uncertainty.',
-      'Return at least one chart. If no sourced numerical dataset is found, return a qualitative evidence-coverage chart with labels and numeric scores.'
+      'Return 2 to 4 useful charts. Prefer one timeline or comparison chart, one evidence/claim support chart, and one source mix or argument coverage chart.',
+      'If no sourced numerical dataset is found, return qualitative evidence maps with labels and numeric scores, and clearly mark them as qualitative.'
     ],
     ...input
   });
@@ -278,23 +285,34 @@ const articleJsonSchema = {
       },
       charts: {
         type: 'array',
-        minItems: 1,
+        minItems: 2,
+        maxItems: 4,
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['title', 'type', 'note', 'data'],
+          required: ['title', 'question', 'type', 'takeaway', 'units', 'sourceNote', 'limitation', 'note', 'data'],
           properties: {
             title: { type: 'string' },
+            question: { type: 'string' },
             type: { type: 'string', enum: ['bar', 'line', 'area', 'pie'] },
+            takeaway: { type: 'string' },
+            units: { type: 'string' },
+            sourceNote: { type: 'string' },
+            limitation: { type: 'string' },
             note: { type: 'string' },
             data: {
               type: 'array',
               items: {
                 type: 'object',
                 additionalProperties: { type: ['string', 'number'] },
-                required: ['label'],
+                required: ['label', 'value', 'group', 'date', 'source', 'note'],
                 properties: {
-                  label: { type: 'string' }
+                  label: { type: 'string' },
+                  value: { type: 'number' },
+                  group: { type: 'string' },
+                  date: { type: 'string' },
+                  source: { type: 'string' },
+                  note: { type: 'string' }
                 }
               }
             }
@@ -399,6 +417,7 @@ async function performArticleGeneration(input, userId) {
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
           bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array.',
+          chartRules: 'Return 2 to 4 charts. Each chart must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Prefer concrete sourced numbers; use qualitative evidence maps only when sourced numbers are unavailable.',
           requiredShape: articleJsonShape,
           originalRequest: input,
           researchBrief: researchResponse.output_text,
