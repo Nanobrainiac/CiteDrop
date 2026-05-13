@@ -41,9 +41,44 @@ export default function Layout({ children }) {
         </nav>
       </header>
       <main>{children}</main>
-      <footer className="border-t border-white/10 px-4 py-8 text-center text-sm text-white/45">
-        <p>Built for careful, sourced, shareable arguments.</p>
-        <DonateButton compact className="mt-4 px-4 py-2 text-sm" />
+      <footer className="border-t border-white/10 px-4 py-10 text-sm text-white/50 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1.2fr_.8fr_.8fr]">
+          <div>
+            <Link to="/" className="inline-flex items-center gap-3 text-white">
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-acid text-ink shadow-glow">
+                <Sparkles size={21} strokeWidth={2.6} />
+              </span>
+              <span>
+                <span className="block text-lg font-black leading-none">CiteDrop</span>
+                <span className="text-xs uppercase text-white/45">Turn Claims Into Evidence</span>
+              </span>
+            </Link>
+            <p className="mt-4 max-w-md leading-6">Built for careful, sourced, shareable arguments with visible claims, charts, and references.</p>
+            <DonateButton compact className="mt-5 px-4 py-2 text-sm" />
+          </div>
+          <div>
+            <p className="font-black uppercase text-white/70">Site</p>
+            <div className="mt-4 grid gap-2">
+              <Link className="hover:text-acid" to="/#latest">Browse articles</Link>
+              <Link className="hover:text-acid" to="/dashboard">Create article</Link>
+              {user?.role === 'admin' ? <Link className="hover:text-acid" to="/admin">Admin</Link> : null}
+            </div>
+          </div>
+          <div>
+            <p className="font-black uppercase text-white/70">Notes</p>
+            <p className="mt-4 leading-6">AI output should be reviewed before publishing. Sources and claims are shown separately for transparency.</p>
+            <p className="mt-4">
+              Powered by{' '}
+              <a className="font-bold text-acid hover:text-white" href="https://twopixelshort.com" target="_blank" rel="noreferrer">
+                Two Pixels short
+              </a>
+            </p>
+          </div>
+        </div>
+        <div className="mx-auto mt-8 flex max-w-7xl flex-col gap-2 border-t border-white/10 pt-5 text-xs text-white/35 sm:flex-row sm:items-center sm:justify-between">
+          <p>&copy; {new Date().getFullYear()} CiteDrop. All rights reserved.</p>
+          <p>Public research pages for debate, review, and sharing.</p>
+        </div>
       </footer>
     </div>
   );

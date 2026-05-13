@@ -5,7 +5,13 @@ import LoadingState from '../components/LoadingState.jsx';
 import MyArticleTable from '../components/MyArticleTable.jsx';
 import PromptBuilder from '../components/PromptBuilder.jsx';
 import DonateButton from '../components/DonateButton.jsx';
+import SectionTabs from '../components/SectionTabs.jsx';
 import { getArticles } from '../lib/api.js';
+
+const dashboardTabs = [
+  { label: 'Create', href: '#create' },
+  { label: 'My articles', href: '#my-articles' }
+];
 
 export default function DashboardPage() {
   const [generated, setGenerated] = useState(null);
@@ -35,7 +41,7 @@ export default function DashboardPage() {
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mb-6">
+      <div id="create" className="mb-6 scroll-mt-24">
         <p className="text-sm font-bold uppercase text-acid">Generator</p>
         <h1 className="mt-2 text-4xl font-black">Build a shareable research article</h1>
         <p className="mt-3 max-w-3xl text-white/60">Create a shareable AI-powered article with research, graphs, and visual explanations in seconds.</p>
@@ -43,6 +49,7 @@ export default function DashboardPage() {
           <DonateButton />
         </div>
       </div>
+      <SectionTabs items={dashboardTabs} className="mb-6 rounded-lg" />
       <PromptBuilder onGenerated={handleGenerated} />
       {generated ? (
         <div className="mt-6 glass-panel rounded-lg p-5">
@@ -55,7 +62,7 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : null}
-      <div className="mt-10">
+      <div id="my-articles" className="mt-10 scroll-mt-24">
         <div className="mb-5">
           <p className="text-sm font-bold uppercase text-acid">Your articles</p>
           <h2 className="mt-2 text-3xl font-black">Generated articles</h2>
