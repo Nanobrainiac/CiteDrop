@@ -1,11 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, BarChart3, FileSearch, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
 import ArticleGrid from '../components/ArticleGrid.jsx';
+import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
 import LoadingState from '../components/LoadingState.jsx';
 import SearchAndFilters from '../components/SearchAndFilters.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticles } from '../lib/api.js';
+
+const featuredEvidence = {
+  claims: [
+    { text: 'Public filings show measurable changes after policy shifts.', confidence: 'high' },
+    { text: 'The strongest evidence comes from multi-year trend comparisons.', confidence: 'high' },
+    { text: 'Some regional effects remain difficult to isolate from broader market conditions.', confidence: 'medium' },
+    { text: 'Expert commentary supports the directional conclusion but not every numeric estimate.', confidence: 'medium' },
+    { text: 'Older survey data should be treated as context rather than proof.', confidence: 'low' },
+    { text: 'The available evidence is persuasive when claims are scoped narrowly.', confidence: 'high' },
+    { text: 'Alternative explanations are credible for part of the observed change.', confidence: 'medium' },
+    { text: 'Recent source material confirms the core timeline.', confidence: 'high' },
+    { text: 'The conclusion depends on qualified rather than absolute language.', confidence: 'medium' },
+    { text: 'A comparison chart helps clarify the size of the effect.', confidence: 'high' },
+    { text: 'No single source resolves the full causal question.', confidence: 'medium' },
+    { text: 'The public record supports a cautious, evidence-backed argument.', confidence: 'high' }
+  ],
+  charts: [{}, {}, {}, {}],
+  sources: [{}, {}, {}, {}, {}, {}, {}, {}, {}]
+};
 
 export default function HomePage() {
   const [articles, setArticles] = useState([]);
@@ -54,25 +74,7 @@ export default function HomePage() {
             <a href="#latest" className="inline-flex items-center justify-center rounded-full border border-white/15 px-6 py-3 font-bold text-white/75 hover:bg-white/10">Browse latest</a>
           </div>
         </div>
-        <div className="glass-panel chart-grid rounded-lg p-5 shadow-glow">
-          <div className="rounded-lg border border-white/10 bg-black/35 p-5">
-            <p className="text-sm uppercase text-white/45">Claim strength index</p>
-            <div className="mt-2 flex items-end gap-3">
-              <span className="text-6xl font-black text-acid sm:text-7xl">87.4</span>
-              <span className="pb-3 text-white/45">verified / qualified</span>
-            </div>
-            <div className="mt-8 grid grid-cols-5 gap-2">
-              {[42, 70, 54, 88, 63, 35, 50, 78, 47, 92].map((height, index) => (
-                <div key={index} className={`rounded-md ${index % 3 === 0 ? 'bg-ember' : index % 2 ? 'bg-moss' : 'bg-acid'}`} style={{ height }} />
-              ))}
-            </div>
-            <div className="mt-7 grid gap-3 sm:grid-cols-3">
-              <Metric icon={FileSearch} label="Claims" value="12" />
-              <Metric icon={BarChart3} label="Charts" value="4" />
-              <Metric icon={ShieldCheck} label="Sources" value="9" />
-            </div>
-          </div>
-        </div>
+        <EvidenceScorePanel claims={featuredEvidence.claims} charts={featuredEvidence.charts} sources={featuredEvidence.sources} />
       </section>
 
       <section id="latest" className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
@@ -86,15 +88,5 @@ export default function HomePage() {
         {error ? <div className="glass-panel rounded-lg p-6 text-white/65">{error}</div> : loading ? <LoadingState label="Loading articles" /> : <ArticleGrid articles={articles} />}
       </section>
     </>
-  );
-}
-
-function Metric({ icon: Icon, label, value }) {
-  return (
-    <div className="rounded-md bg-white/8 p-4">
-      <Icon className="h-5 w-5 text-acid" />
-      <p className="mt-3 text-2xl font-black">{value}</p>
-      <p className="text-sm text-white/45">{label}</p>
-    </div>
   );
 }
