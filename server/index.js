@@ -84,6 +84,8 @@ Rules:
 - Prefer careful, measured persuasion over inflammatory rhetoric.
 - Sources must include title, publisher, url, date when known, and note explaining the exact claim(s) it supports.
 - Article body must be an array of sections with heading and paragraphs.
+- Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
+- Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
 - Always include at least one chart. Charts must use simple JSON renderable as bar, line, area, or pie charts.
 - Prefer sourced quantitative data. If quantitative data is unavailable, create a qualitative evidence-coverage chart and clearly label it as qualitative or illustrative in the note.
 - Never cite a URL that was not actually consulted.`;
@@ -323,17 +325,34 @@ const articleJsonSchema = {
 function normalizeGeneratedArticle(article, fallbackCategory) {
   const title = String(article.title || 'Untitled research brief').slice(0, 180);
   const rawSlug = article.slug || title;
+  const body = Array.isArray(article.body) ? sanitizeArticleBody(article.body) : [];
   return {
     title,
     slug: slugify(rawSlug, { lower: true, strict: true }).slice(0, 140) || `article-${Date.now()}`,
     subtitle: String(article.subtitle || '').slice(0, 240),
     summary: String(article.summary || '').slice(0, 700),
     category: String(article.category || fallbackCategory || 'Research').slice(0, 80),
-    body: Array.isArray(article.body) ? article.body : [],
+    body,
     keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims : [],
     charts: Array.isArray(article.charts) ? article.charts : [],
     sources: Array.isArray(article.sources) ? article.sources : []
   };
+}
+
+function sanitizeArticleBody(body) {
+  const sourceHeadingPattern = /^(sources?|references?|bibliography|works cited|citations?)$/i;
+  const urlPattern = /https?:\/\/\S+|www\.\S+|\[[^\]]+\]\([^)]+\)/gi;
+  return body
+    .filter((section) => !sourceHeadingPattern.test(String(section?.heading || '').trim()))
+    .map((section) => ({
+      heading: String(section?.heading || '').replace(urlPattern, '').trim(),
+      paragraphs: Array.isArray(section?.paragraphs)
+        ? section.paragraphs
+          .map((paragraph) => String(paragraph || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim())
+          .filter(Boolean)
+        : []
+    }))
+    .filter((section) => section.heading || section.paragraphs.length);
 }
 
 function uniqueSlug(baseSlug) {
@@ -379,6 +398,7 @@ async function performArticleGeneration(input, userId) {
         role: 'user',
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
+          bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array.',
           requiredShape: articleJsonShape,
           originalRequest: input,
           researchBrief: researchResponse.output_text,
