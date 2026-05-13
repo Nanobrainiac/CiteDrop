@@ -4,6 +4,7 @@ import EmptyState from '../components/EmptyState.jsx';
 import LoadingState from '../components/LoadingState.jsx';
 import MyArticleTable from '../components/MyArticleTable.jsx';
 import PromptBuilder from '../components/PromptBuilder.jsx';
+import DonateButton from '../components/DonateButton.jsx';
 import { getArticles } from '../lib/api.js';
 
 export default function DashboardPage() {
@@ -38,6 +39,9 @@ export default function DashboardPage() {
         <p className="text-sm font-bold uppercase text-acid">Generator</p>
         <h1 className="mt-2 text-4xl font-black">Build a shareable research article</h1>
         <p className="mt-3 max-w-3xl text-white/60">Create a shareable AI-powered article with research, graphs, and visual explanations in seconds.</p>
+        <div className="mt-5">
+          <DonateButton />
+        </div>
       </div>
       <PromptBuilder onGenerated={handleGenerated} />
       {generated ? (
@@ -47,6 +51,7 @@ export default function DashboardPage() {
           <p className="mt-2 text-white/55">Your draft is saved. Preview it, then publish it when you are ready to share.</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link to={`/articles/${generated.slug}`} className="rounded-full border border-white/15 px-5 py-3 font-bold hover:bg-white/10">Preview article</Link>
+            <DonateButton compact />
           </div>
         </div>
       ) : null}

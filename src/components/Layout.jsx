@@ -2,6 +2,7 @@ import { Link, NavLink } from 'react-router-dom';
 import { PenLine, ShieldCheck, Sparkles } from 'lucide-react';
 import { UserButton } from '@clerk/clerk-react';
 import { useAuth } from '../state/AuthContext.jsx';
+import DonateButton from './DonateButton.jsx';
 
 export default function Layout({ children }) {
   const { user, configured } = useAuth();
@@ -15,19 +16,19 @@ export default function Layout({ children }) {
               <Sparkles size={21} strokeWidth={2.6} />
             </span>
             <span>
-              <span className="block text-lg font-black leading-none tracking-normal">Proofer</span>
-              <span className="hidden text-xs uppercase text-white/45 sm:block">Evidence pages</span>
+              <span className="block text-lg font-black leading-none tracking-normal">CiteDrop</span>
+              <span className="hidden text-xs uppercase text-white/45 sm:block">Turn Claims Into Evidence</span>
             </span>
           </Link>
           <div className="flex items-center gap-2">
             <NavLink className="rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white" to="/">Browse</NavLink>
             {user ? (
               <>
-                <NavLink className="hidden rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white sm:inline-flex" to="/dashboard">
+                <NavLink className="inline-flex rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white" to="/dashboard">
                   <PenLine className="mr-2 h-4 w-4" /> Create
                 </NavLink>
                 {user.role === 'admin' ? (
-                  <NavLink className="hidden rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white sm:inline-flex" to="/admin">
+                  <NavLink className="inline-flex rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white" to="/admin">
                     <ShieldCheck className="mr-2 h-4 w-4" /> Admin
                   </NavLink>
                 ) : null}
@@ -41,7 +42,8 @@ export default function Layout({ children }) {
       </header>
       <main>{children}</main>
       <footer className="border-t border-white/10 px-4 py-8 text-center text-sm text-white/45">
-        Built for careful, sourced, shareable arguments.
+        <p>Built for careful, sourced, shareable arguments.</p>
+        <DonateButton compact className="mt-4 px-4 py-2 text-sm" />
       </footer>
     </div>
   );
