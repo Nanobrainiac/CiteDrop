@@ -5,6 +5,7 @@ import ChartRenderer from '../components/ChartRenderer.jsx';
 import ClaimList from '../components/ClaimList.jsx';
 import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
 import LoadingState from '../components/LoadingState.jsx';
+import SectionTabs from '../components/SectionTabs.jsx';
 import SourceList from '../components/SourceList.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticle } from '../lib/api.js';
@@ -46,6 +47,13 @@ export default function ArticlePage() {
     { label: 'Charts', value: charts.length },
     { label: 'Sources', value: sources.length }
   ], [claims.length, charts.length, sources.length]);
+  const sectionTabs = useMemo(() => [
+    { label: 'Summary', href: '#summary' },
+    { label: 'Claims', href: '#claims' },
+    { label: 'Charts', href: '#charts' },
+    { label: 'Article', href: '#article-body' },
+    { label: 'Sources', href: '#sources' }
+  ], []);
 
   async function copyLink() {
     await navigator.clipboard.writeText(articleUrl(article.slug));
@@ -101,11 +109,24 @@ export default function ArticlePage() {
         </div>
       </header>
 
+      <SectionTabs items={sectionTabs} className="sticky top-0 z-30 lg:hidden" />
+
       <section className="mx-auto max-w-7xl space-y-5 overflow-x-hidden px-3 py-8 sm:px-6 lg:hidden">
-        {supportPanels}
+        <div id="summary" className="scroll-mt-20">
+          <div className="glass-panel rounded-lg p-5">
+            <p className="text-sm uppercase text-white/45">Brief summary</p>
+            <p className="mt-4 text-base leading-7 text-white/72">{article.summary}</p>
+          </div>
+        </div>
+        <div id="claims" className="scroll-mt-20">
+          <ClaimList claims={claims} />
+        </div>
+        <div id="charts" className="scroll-mt-20">
+          <ChartRenderer charts={charts} fallbackData={fallbackChartData} />
+        </div>
       </section>
 
-      <div className="mx-auto grid max-w-7xl gap-6 overflow-x-hidden px-3 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
+      <div id="article-body" className="mx-auto grid max-w-7xl scroll-mt-20 gap-6 overflow-x-hidden px-3 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
         <div className="min-w-0 space-y-8">
           {sections.map((section, index) => (
             <section key={`${section.heading}-${index}`} className="max-w-none">
@@ -115,7 +136,9 @@ export default function ArticlePage() {
               ))}
             </section>
           ))}
-          <SourceList sources={sources} />
+          <div id="sources" className="scroll-mt-20">
+            <SourceList sources={sources} />
+          </div>
         </div>
         <aside className="hidden min-w-0 space-y-6 lg:sticky lg:top-24 lg:block lg:self-start">
           {supportPanels}
