@@ -23,6 +23,7 @@ const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VIT
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
+app.enable('trust proxy');
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' }
@@ -31,10 +32,16 @@ app.use(cors({ origin: isProduction ? false : true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(isProduction ? 'combined' : 'dev'));
 if (process.env.CLERK_SECRET_KEY && clerkPublishableKey) {
-  app.use(clerkMiddleware({
+  const clerk = clerkMiddleware({
     secretKey: process.env.CLERK_SECRET_KEY,
     publishableKey: clerkPublishableKey
-  }));
+  });
+  app.use((req, res, next) => {
+    const isPublicPage = req.method === 'GET' && (req.path === '/' || req.path.startsWith('/articles/'));
+    const isPublicOgImage = req.method === 'GET' && /^\/api\/articles\/[^/]+\/og-image$/.test(req.path);
+    if (isPublicPage || isPublicOgImage) return next();
+    return clerk(req, res, next);
+  });
 }
 
 const generationSchema = z.object({
