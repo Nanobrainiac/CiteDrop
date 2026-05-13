@@ -104,12 +104,11 @@ export default function ArticlePage() {
                 <Copy size={18} /> {copied ? 'Copied' : 'Copy link'}
               </button>
             </div>
+            <SectionTabs items={sectionTabs} className="mt-6 rounded-lg lg:hidden" />
           </div>
           <EvidenceScorePanel claims={claims} charts={charts} sources={sources} />
         </div>
       </header>
-
-      <SectionTabs items={sectionTabs} className="sticky top-0 z-30 lg:hidden" />
 
       <section className="mx-auto max-w-7xl space-y-5 overflow-x-hidden px-3 py-8 sm:px-6 lg:hidden">
         <div id="summary" className="scroll-mt-20">
