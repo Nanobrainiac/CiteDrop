@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import OpenAI from 'openai';
 import slugify from 'slugify';
@@ -22,6 +23,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const generationJobs = new Map();
 
 app.enable('trust proxy');
 app.use(helmet({
@@ -348,6 +350,85 @@ function publicGenerationError(error) {
   return error?.message || 'Article generation failed.';
 }
 
+async function performArticleGeneration(input, userId) {
+  const researchResponse = await openai.responses.create({
+    model: process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
+    tool_choice: 'auto',
+    temperature: 0.35,
+    include: ['web_search_call.action.sources'],
+    input: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: buildGenerationInput(input) }
+    ]
+  });
+
+  const responseSources = researchResponse.output?.flatMap((item) => item.action?.sources || []) || [];
+  const draftingResponse = await openai.responses.create({
+    model: process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    temperature: 0.2,
+    text: {
+      format: {
+        type: 'json_schema',
+        ...articleJsonSchema
+      }
+    },
+    input: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
+          requiredShape: articleJsonShape,
+          originalRequest: input,
+          researchBrief: researchResponse.output_text,
+          consultedSources: responseSources
+        })
+      }
+    ]
+  });
+
+  const generatedRaw = JSON.parse(draftingResponse.output_text || '{}');
+  generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
+  const generated = normalizeGeneratedArticle(generatedRaw, input.category);
+  const insertPayload = {
+    title: generated.title,
+    slug: uniqueSlug(generated.slug),
+    subtitle: generated.subtitle,
+    summary: generated.summary,
+    category: generated.category,
+    status: 'draft',
+    body: generated.body,
+    claims_json: generated.keyClaims,
+    charts_json: generated.charts,
+    sources_json: generated.sources,
+    created_by: userId
+  };
+
+  const { rows } = await query(
+    `insert into articles
+      (title, slug, subtitle, summary, category, status, body, claims_json, charts_json, sources_json, created_by)
+     values
+      ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11)
+     returning *`,
+    [
+      insertPayload.title,
+      insertPayload.slug,
+      insertPayload.subtitle,
+      insertPayload.summary,
+      insertPayload.category,
+      insertPayload.status,
+      JSON.stringify(insertPayload.body),
+      JSON.stringify(insertPayload.claims_json),
+      JSON.stringify(insertPayload.charts_json),
+      JSON.stringify(insertPayload.sources_json),
+      userId
+    ]
+  );
+
+  return rows[0];
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
@@ -430,90 +511,34 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
     return;
   }
 
+  const jobId = randomUUID();
+  generationJobs.set(jobId, {
+    id: jobId,
+    userId: req.user.id,
+    status: 'queued',
+    article: null,
+    error: '',
+    createdAt: Date.now()
+  });
+  res.status(202).json({ jobId });
+
   try {
-    const input = parsed.data;
-    const researchResponse = await openai.responses.create({
-      model: process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
-      tool_choice: 'auto',
-      temperature: 0.35,
-      include: ['web_search_call.action.sources'],
-      input: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: buildGenerationInput(input) }
-      ]
-    });
-
-    const responseSources = researchResponse.output?.flatMap((item) => item.action?.sources || []) || [];
-    const draftingResponse = await openai.responses.create({
-      model: process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: 0.2,
-      text: {
-        format: {
-          type: 'json_schema',
-          ...articleJsonSchema
-        }
-      },
-      input: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
-            requiredShape: articleJsonShape,
-            originalRequest: input,
-            researchBrief: researchResponse.output_text,
-            consultedSources: responseSources
-          })
-        }
-      ]
-    });
-
-    const generatedRaw = JSON.parse(draftingResponse.output_text || '{}');
-    generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
-    const generated = normalizeGeneratedArticle(generatedRaw, input.category);
-    const insertPayload = {
-      title: generated.title,
-      slug: uniqueSlug(generated.slug),
-      subtitle: generated.subtitle,
-      summary: generated.summary,
-      category: generated.category,
-      status: 'draft',
-      body: generated.body,
-      claims_json: generated.keyClaims,
-      charts_json: generated.charts,
-      sources_json: generated.sources,
-      created_by: req.user.id
-    };
-
-    const { rows } = await query(
-      `insert into articles
-        (title, slug, subtitle, summary, category, status, body, claims_json, charts_json, sources_json, created_by)
-       values
-        ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11)
-       returning *`,
-      [
-        insertPayload.title,
-        insertPayload.slug,
-        insertPayload.subtitle,
-        insertPayload.summary,
-        insertPayload.category,
-        insertPayload.status,
-        JSON.stringify(insertPayload.body),
-        JSON.stringify(insertPayload.claims_json),
-        JSON.stringify(insertPayload.charts_json),
-        JSON.stringify(insertPayload.sources_json),
-        req.user.id
-      ]
-    );
-
-    res.status(201).json({ article: rows[0] });
+    generationJobs.set(jobId, { ...generationJobs.get(jobId), status: 'running' });
+    const article = await performArticleGeneration(parsed.data, req.user.id);
+    generationJobs.set(jobId, { ...generationJobs.get(jobId), status: 'completed', article });
   } catch (error) {
     console.error(error);
-    res.status(error?.status && error.status >= 400 && error.status < 500 ? error.status : 500).json({
-      error: publicGenerationError(error)
-    });
+    generationJobs.set(jobId, { ...generationJobs.get(jobId), status: 'failed', error: publicGenerationError(error) });
   }
+});
+
+app.get('/api/generation-jobs/:id', requireDatabase, requireUser, (req, res) => {
+  const job = generationJobs.get(req.params.id);
+  if (!job || job.userId !== req.user.id) {
+    res.status(404).json({ error: 'Generation job not found.' });
+    return;
+  }
+  res.json({ job: { id: job.id, status: job.status, article: job.article, error: job.error } });
 });
 
 app.get('/api/articles', requireDatabase, async (req, res) => {

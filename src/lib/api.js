@@ -1,5 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 let authTokenGetter = null;
+const generationPollInterval = 2500;
+const generationTimeout = 180000;
 
 export function setAuthTokenGetter(getter) {
   authTokenGetter = getter;
@@ -24,7 +26,10 @@ async function request(path, options = {}) {
       throw new Error(error.error || `Request failed with ${response.status}.`);
     }
     const body = await response.text().catch(() => '');
-    const cleanedBody = body.replace(/\s+/g, ' ').trim().slice(0, 220);
+    const cleanedBody = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (response.status === 503) {
+      throw new Error('The server is temporarily unavailable. Try again in a minute.');
+    }
     throw new Error(`Request failed with ${response.status}${cleanedBody ? `: ${cleanedBody}` : ''}`);
   }
   if (response.status === 204) return null;
@@ -48,7 +53,23 @@ export function generateArticle(payload) {
   return request('/api/generate-article', {
     method: 'POST',
     body: JSON.stringify(payload)
-  });
+  }).then((result) => result.article ? result : waitForGenerationJob(result.jobId));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForGenerationJob(jobId) {
+  if (!jobId) throw new Error('Article generation did not start.');
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < generationTimeout) {
+    await sleep(generationPollInterval);
+    const result = await request(`/api/generation-jobs/${jobId}`);
+    if (result.job.status === 'completed') return { article: result.job.article };
+    if (result.job.status === 'failed') throw new Error(result.job.error || 'Article generation failed.');
+  }
+  throw new Error('Article generation is taking longer than expected. Refresh your article list in a minute.');
 }
 
 export function updateArticle(id, payload) {
