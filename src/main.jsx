@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import App from './App.jsx';
 import './styles.css';
 import { AuthProvider } from './state/AuthContext.jsx';
+import HashScroll from './components/HashScroll.jsx';
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -12,6 +13,7 @@ function AppTree() {
   return (
     <BrowserRouter>
       <AuthProvider clerkEnabled={Boolean(clerkPublishableKey)}>
+        <HashScroll />
         <Routes>
           <Route path="/*" element={<App />} />
         </Routes>

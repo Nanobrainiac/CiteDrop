@@ -21,7 +21,7 @@ export default function Layout({ children }) {
             </span>
           </Link>
           <div className="flex items-center gap-2">
-            <NavLink className="rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white" to="/">Browse</NavLink>
+            <NavLink className="rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white" to="/#latest">Browse</NavLink>
             {user ? (
               <>
                 <NavLink className="inline-flex rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white" to="/dashboard">

@@ -45,7 +45,7 @@ export default function HomePage() {
             Build shareable data-driven articles in seconds.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-white/62">
-            Proofer turns focused prompts into polished research articles with chart visualizations, visible sources, and a clear separation between claims and opinion.
+            CiteDrop turns focused prompts into polished research articles with chart visualizations, visible sources, and a clear separation between claims and opinion.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link to="/dashboard" className="inline-flex items-center justify-center gap-2 rounded-full bg-acid px-6 py-3 font-black text-ink hover:bg-white">
