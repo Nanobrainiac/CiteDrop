@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { clerkMiddleware } from '@clerk/express';
 import { query, requireDatabase } from './db.js';
 import { currentUser, getUserFromRequest, requireAdmin, requireUser } from './auth.js';
-import { renderArticleOgImage } from './og.js';
+import { ogImageVersion, renderArticleOgImage } from './og.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -143,7 +143,7 @@ async function findPublishedArticleBySlug(slug) {
 function injectArticleMeta(html, article, req) {
   const version = Date.parse(article.updated_at || article.created_at) || Date.now();
   const articleUrl = absoluteUrl(req, `/articles/${article.slug}`);
-  const imageUrl = absoluteUrl(req, `/api/articles/${article.slug}/og-image?v=${version}`);
+  const imageUrl = absoluteUrl(req, `/api/articles/${article.slug}/og-image?v=${ogImageVersion}-${version}`);
   const title = `${article.title} | CiteDrop`;
   const description = article.summary || article.subtitle || 'Evidence-backed AI research article.';
   const meta = `
@@ -584,7 +584,7 @@ app.get('/api/articles/:slug/og-image', requireDatabase, async (req, res) => {
     }
     const png = await renderArticleOgImage(article);
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
     res.send(png);
   } catch (error) {
     console.error(error);

@@ -2,6 +2,7 @@ import sharp from 'sharp';
 
 const imageCache = new Map();
 const maxCacheEntries = 100;
+export const ogImageVersion = 'og-v2';
 
 function escapeXml(value = '') {
   return String(value)
@@ -44,7 +45,7 @@ function cacheSet(key, value) {
 }
 
 export function getOgImageCacheKey(article) {
-  return `${article.slug}:${article.updated_at || article.created_at || ''}`;
+  return `${ogImageVersion}:${article.slug}:${article.updated_at || article.created_at || ''}`;
 }
 
 export async function renderArticleOgImage(article) {
