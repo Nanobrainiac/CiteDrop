@@ -352,6 +352,29 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/fb-health', (_req, res) => {
+  res
+    .type('html')
+    .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CiteDrop Facebook Health Check</title>
+    <meta name="description" content="Static crawler health check for CiteDrop." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="CiteDrop Facebook Health Check" />
+    <meta property="og:description" content="Static crawler health check for CiteDrop." />
+    <meta property="og:url" content="https://www.citedrop.com/fb-health" />
+    <meta property="og:image" content="https://www.citedrop.com/og-home.png" />
+    <meta property="og:image:secure_url" content="https://www.citedrop.com/og-home.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+  </head>
+  <body>ok</body>
+</html>`);
+});
+
 if (!isProduction) {
   app.get('/', (_req, res) => {
     res
