@@ -33,7 +33,7 @@ export default function PromptBuilder({ onGenerated }) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
         <label className="block space-y-2">
           <span className="text-sm font-bold text-white/70">Research question</span>
-          <textarea required minLength={12} rows={7} value={form.prompt} onChange={(event) => updateField('prompt', event.target.value)} className="w-full resize-y rounded-md border border-white/10 bg-black/25 px-4 py-3 outline-none focus:border-acid" placeholder="Example: Who sleeps more, Trump or Biden?" />
+          <textarea required minLength={12} rows={7} value={form.prompt} onChange={(event) => updateField('prompt', event.target.value)} className="w-full resize-y rounded-md border border-white/10 bg-black/25 px-4 py-3 outline-none focus:border-acid" placeholder="Example: Is college still worth it?" />
         </label>
         <label className="space-y-2">
           <span className="text-sm font-bold text-white/70">Tone</span>
