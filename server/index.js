@@ -47,11 +47,11 @@ if (process.env.CLERK_SECRET_KEY && clerkPublishableKey) {
 }
 
 const generationSchema = z.object({
-  prompt: z.string().min(20).max(4000),
-  topic: z.string().min(2).max(120),
+  prompt: z.string().min(12).max(4000),
+  topic: z.string().max(120).optional().default(''),
   position: z.string().max(500).optional().default(''),
   tone: z.string().min(2).max(80).default('Professional and persuasive'),
-  category: z.string().min(2).max(80).default('Research'),
+  category: z.string().max(80).optional().default(''),
   visualizations: z.array(z.string().max(80)).max(5).optional().default([]),
   sourceUrls: z.array(z.string().url()).max(12).optional().default([])
 });
@@ -80,8 +80,11 @@ Rules:
 - If a requested coverage point cannot be supported by sources, include it as a limitation instead of skipping or inventing facts.
 - If the user requests multiple periods, entities, terms, or comparisons, cover each one explicitly.
 - Separate factual claims from analysis or opinion.
+- Infer the article category from the user's research question.
+- Do not assume an intended position from the user. Answer the research question based on the evidence, including counterpoints and limitations where relevant.
 - Avoid defamatory, harassing, or demeaning language about private people or protected groups.
 - Prefer careful, measured persuasion over inflammatory rhetoric.
+- If tone is "Silly but evidence-based", use playful phrasing and light wit while keeping claims, uncertainty, sources, and safety standards serious.
 - Sources must include title, publisher, url, date when known, and note explaining the exact claim(s) it supports.
 - Article body must be an array of sections with heading and paragraphs.
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
@@ -209,7 +212,14 @@ function injectHomeMeta(html, req) {
 
 function buildGenerationInput(input) {
   return JSON.stringify({
-    task: 'Research the topic using web search and return a source-grounded research brief.',
+    task: 'Research the user question using web search and return a source-grounded research brief.',
+    userQuestion: input.prompt,
+    requestedTone: input.tone,
+    inferenceRequirements: [
+      'Infer the best category from the question.',
+      'Infer the useful chart count and chart types from the evidence.',
+      'Do not use an intended position unless the user clearly asks for a one-sided argument. Prefer evidence-led framing.'
+    ],
     sourceQualityRequirements: [
       'Search for and use multiple specific source pages.',
       'Do not cite generic homepages when a specific article/report/page is needed.',
@@ -219,7 +229,7 @@ function buildGenerationInput(input) {
       'Return 2 to 4 useful charts. Prefer one timeline or comparison chart, one evidence/claim support chart, and one source mix or argument coverage chart.',
       'If no sourced numerical dataset is found, return qualitative evidence maps with labels and numeric scores, and clearly mark them as qualitative.'
     ],
-    ...input
+    sourceUrls: input.sourceUrls
   });
 }
 
@@ -344,12 +354,13 @@ function normalizeGeneratedArticle(article, fallbackCategory) {
   const title = String(article.title || 'Untitled research brief').slice(0, 180);
   const rawSlug = article.slug || title;
   const body = Array.isArray(article.body) ? sanitizeArticleBody(article.body) : [];
+  const category = article.category || fallbackCategory || 'Research';
   return {
     title,
     slug: slugify(rawSlug, { lower: true, strict: true }).slice(0, 140) || `article-${Date.now()}`,
     subtitle: String(article.subtitle || '').slice(0, 240),
     summary: String(article.summary || '').slice(0, 700),
-    category: String(article.category || fallbackCategory || 'Research').slice(0, 80),
+    category: String(category).slice(0, 80),
     body,
     keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims : [],
     charts: Array.isArray(article.charts) ? article.charts : [],
@@ -429,7 +440,7 @@ async function performArticleGeneration(input, userId) {
 
   const generatedRaw = JSON.parse(draftingResponse.output_text || '{}');
   generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
-  const generated = normalizeGeneratedArticle(generatedRaw, input.category);
+  const generated = normalizeGeneratedArticle(generatedRaw, input.category || 'Research');
   const insertPayload = {
     title: generated.title,
     slug: uniqueSlug(generated.slug),
