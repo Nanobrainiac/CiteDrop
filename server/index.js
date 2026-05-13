@@ -126,7 +126,7 @@ function injectArticleMeta(html, article, req) {
   const version = encodeURIComponent(article.updated_at || article.created_at || Date.now());
   const articleUrl = absoluteUrl(req, `/articles/${article.slug}`);
   const imageUrl = absoluteUrl(req, `/api/articles/${article.slug}/og-image?v=${version}`);
-  const title = `${article.title} | Proofer`;
+  const title = `${article.title} | CiteDrop`;
   const description = article.summary || article.subtitle || 'Evidence-backed AI research article.';
   const meta = `
     <title>${escapeHtml(title)}</title>

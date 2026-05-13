@@ -22,13 +22,13 @@ export default function ArticlePage() {
     getArticle(slug, true)
       .then((result) => {
         setArticle(result.article);
-        document.title = `${result.article.title} | Proofer`;
+        document.title = `${result.article.title} | CiteDrop`;
       })
       .catch((err) => {
         const demoArticle = demoArticles.find((item) => item.slug === slug);
         if (demoArticle) {
           setArticle(demoArticle);
-          document.title = `${demoArticle.title} | Proofer`;
+          document.title = `${demoArticle.title} | CiteDrop`;
         } else {
           setError(err.message);
         }
