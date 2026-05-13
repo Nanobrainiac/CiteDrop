@@ -23,7 +23,10 @@ const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VIT
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 app.use(cors({ origin: isProduction ? false : true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(isProduction ? 'combined' : 'dev'));
@@ -110,6 +113,14 @@ function escapeHtml(value = '') {
     .replaceAll("'", '&#39;');
 }
 
+function stripMetaTags(html, selectors) {
+  return selectors.reduce((output, selector) => {
+    const attr = selector.startsWith('og:') ? 'property' : 'name';
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return output.replace(new RegExp(`\\s*<meta\\s+${attr}="${escapedSelector}"[^>]*\\/?>`, 'gi'), '');
+  }, html);
+}
+
 function absoluteUrl(req, pathname) {
   const configured = process.env.PUBLIC_SITE_URL?.replace(/\/$/, '');
   if (configured) return `${configured}${pathname}`;
@@ -143,9 +154,23 @@ function injectArticleMeta(html, article, req) {
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
   `;
-  return html
+  const cleanedHtml = stripMetaTags(html, [
+    'description',
+    'og:type',
+    'og:title',
+    'og:description',
+    'og:url',
+    'og:image',
+    'og:image:width',
+    'og:image:height',
+    'twitter:card',
+    'twitter:title',
+    'twitter:description',
+    'twitter:image'
+  ]);
+
+  return cleanedHtml
     .replace(/<title>.*?<\/title>/, '')
-    .replace(/<meta name="description" content=".*?" \/>/, '')
     .replace('</head>', `${meta}\n  </head>`);
 }
 
@@ -157,9 +182,7 @@ function injectHomeMeta(html, req) {
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
   `;
-  return html
-    .replace(/<meta property="og:image" content=".*?" \/>/, '')
-    .replace(/<meta name="twitter:image" content=".*?" \/>/, '')
+  return stripMetaTags(html, ['og:url', 'og:image', 'twitter:image'])
     .replace('</head>', `${meta}\n  </head>`);
 }
 
