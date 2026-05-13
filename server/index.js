@@ -149,6 +149,20 @@ function injectArticleMeta(html, article, req) {
     .replace('</head>', `${meta}\n  </head>`);
 }
 
+function injectHomeMeta(html, req) {
+  const imageUrl = absoluteUrl(req, '/og-home.png');
+  const siteUrl = absoluteUrl(req, '/');
+  const meta = `
+    <meta property="og:url" content="${escapeHtml(siteUrl)}" />
+    <meta property="og:image" content="${escapeHtml(imageUrl)}" />
+    <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
+  `;
+  return html
+    .replace(/<meta property="og:image" content=".*?" \/>/, '')
+    .replace(/<meta name="twitter:image" content=".*?" \/>/, '')
+    .replace('</head>', `${meta}\n  </head>`);
+}
+
 function buildGenerationInput(input) {
   return JSON.stringify({
     task: 'Research the topic using web search and return a source-grounded research brief.',
@@ -608,6 +622,15 @@ app.delete('/api/articles/:id', requireDatabase, requireUser, async (req, res) =
 if (isProduction) {
   const distPath = path.join(__dirname, '..', 'dist');
   app.use(express.static(distPath));
+  app.get('/', async (req, res) => {
+    try {
+      const html = await fs.promises.readFile(path.join(distPath, 'index.html'), 'utf8');
+      res.type('html').send(injectHomeMeta(html, req));
+    } catch (error) {
+      console.error(error);
+      res.sendFile(path.join(distPath, 'index.html'));
+    }
+  });
   app.get('/articles/:slug', async (req, res) => {
     try {
       const html = await fs.promises.readFile(path.join(distPath, 'index.html'), 'utf8');
