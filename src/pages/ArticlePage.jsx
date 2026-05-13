@@ -65,6 +65,17 @@ export default function ArticlePage() {
   if (loading) return <LoadingState label="Loading article" />;
   if (error || !article) return <div className="mx-auto max-w-3xl px-4 py-20 text-white/65">{error || 'Article not found.'}</div>;
 
+  const supportPanels = (
+    <>
+      <div className="glass-panel rounded-lg p-5">
+        <p className="text-sm uppercase text-white/45">Brief summary</p>
+        <p className="mt-4 text-base leading-7 text-white/72">{article.summary}</p>
+      </div>
+      <ClaimList claims={claims} />
+      <ChartRenderer charts={charts} fallbackData={fallbackChartData} />
+    </>
+  );
+
   return (
     <article>
       <header className="border-b border-white/10">
@@ -90,6 +101,10 @@ export default function ArticlePage() {
         </div>
       </header>
 
+      <section className="mx-auto max-w-7xl space-y-5 overflow-x-hidden px-3 py-8 sm:px-6 lg:hidden">
+        {supportPanels}
+      </section>
+
       <div className="mx-auto grid max-w-7xl gap-6 overflow-x-hidden px-3 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
         <div className="min-w-0 space-y-8">
           {sections.map((section, index) => (
@@ -102,13 +117,8 @@ export default function ArticlePage() {
           ))}
           <SourceList sources={sources} />
         </div>
-        <aside className="min-w-0 space-y-6 lg:sticky lg:top-24 lg:self-start">
-          <div className="glass-panel rounded-lg p-5">
-            <p className="text-sm uppercase text-white/45">Brief summary</p>
-            <p className="mt-4 text-base leading-7 text-white/72">{article.summary}</p>
-          </div>
-          <ClaimList claims={claims} />
-          <ChartRenderer charts={charts} fallbackData={fallbackChartData} />
+        <aside className="hidden min-w-0 space-y-6 lg:sticky lg:top-24 lg:block lg:self-start">
+          {supportPanels}
         </aside>
       </div>
     </article>
