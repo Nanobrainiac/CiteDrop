@@ -40,6 +40,31 @@ function ChartTooltip({ active, payload, label, unit }) {
   );
 }
 
+function formatTimelineDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/,/g, '');
+
+  if (/^-?\d+(\.\d+)?$/.test(normalized)) {
+    const numeric = Math.abs(Number(normalized));
+    if (numeric >= 1000000000) return `${trimNumber(numeric / 1000000000)}B years ago`;
+    if (numeric >= 1000000) return `${trimNumber(numeric / 1000000)}M years ago`;
+    if (numeric >= 10000) return `${trimNumber(numeric / 1000)}K years ago`;
+    if (numeric > 3000) return `${numeric} years ago`;
+    return raw;
+  }
+
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly && dateOnly[2] === '01' && dateOnly[3] === '01') return dateOnly[1];
+  if (/^\d{4}-\d{2}$/.test(raw) || /^\d{4}$/.test(raw)) return raw;
+
+  return raw;
+}
+
+function trimNumber(value) {
+  return Number(value.toFixed(1)).toString();
+}
+
 function TimelineView({ data }) {
   return (
     <div className="rounded-md border border-white/10 bg-black/25 p-4">
@@ -49,7 +74,7 @@ function TimelineView({ data }) {
             <span className="absolute left-0 top-1 grid h-6 w-6 place-items-center rounded-full border border-acid/50 bg-ink text-[10px] font-black text-acid">{index + 1}</span>
             <div className="rounded-md bg-white/[0.04] p-3">
               <div className="flex flex-wrap items-center gap-2">
-                {item.date ? <span className="rounded-full bg-acid px-2.5 py-1 text-xs font-black text-ink">{item.date}</span> : null}
+                {item.date ? <span className="rounded-full bg-acid px-2.5 py-1 text-xs font-black text-ink">{formatTimelineDate(item.date)}</span> : null}
                 {item.group ? <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs uppercase text-white/50">{item.group}</span> : null}
               </div>
               <p className="mt-3 break-words font-black text-white">{item.label}</p>
