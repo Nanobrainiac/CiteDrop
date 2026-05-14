@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../state/AuthContext.jsx';
@@ -10,10 +10,37 @@ export default function LoginPage() {
   const [params, setParams] = useSearchParams();
   const mode = params.get('mode') === 'sign-up' ? 'sign-up' : 'sign-in';
   const destination = location.state?.from?.pathname || '/dashboard';
+  const signupFormStarted = useRef(false);
+  const signupGoogleClicked = useRef(false);
 
   useEffect(() => {
     trackEvent(mode === 'sign-up' ? 'signup_started' : 'login_started', { destination });
+    signupFormStarted.current = false;
+    signupGoogleClicked.current = false;
   }, [destination, mode]);
+
+  function showRegister() {
+    trackEvent('register_tab_clicked', { destination });
+    setParams({ mode: 'sign-up' });
+  }
+
+  function handleSignupFormFocus(event) {
+    if (mode !== 'sign-up' || signupFormStarted.current) return;
+    if (!event.target.matches('input, textarea, select')) return;
+    signupFormStarted.current = true;
+    trackEvent('signup_form_started', {
+      destination,
+      field_name: event.target.name || event.target.id || event.target.type
+    });
+  }
+
+  function handleSignupFormClick(event) {
+    if (mode !== 'sign-up' || signupGoogleClicked.current) return;
+    const clickedText = event.target.closest('button, a')?.textContent || '';
+    if (!/google/i.test(clickedText)) return;
+    signupGoogleClicked.current = true;
+    trackEvent('signup_google_clicked', { destination });
+  }
 
   if (user) return <Navigate to={destination} replace />;
 
@@ -35,9 +62,13 @@ export default function LoginPage() {
           <>
             <div className="mb-6 grid grid-cols-2 gap-2 rounded-full bg-white/8 p-1">
               <button type="button" onClick={() => setParams({ mode: 'sign-in' })} className={`rounded-full px-4 py-2 font-bold ${mode === 'sign-in' ? 'bg-acid text-ink' : 'text-white/60'}`}>Login</button>
-              <button type="button" onClick={() => setParams({ mode: 'sign-up' })} className={`rounded-full px-4 py-2 font-bold ${mode === 'sign-up' ? 'bg-acid text-ink' : 'text-white/60'}`}>Register</button>
+              <button type="button" onClick={showRegister} className={`rounded-full px-4 py-2 font-bold ${mode === 'sign-up' ? 'bg-acid text-ink' : 'text-white/60'}`}>Register</button>
             </div>
-            <div className="flex min-w-0 justify-center overflow-hidden [&_.cl-card]:max-w-full [&_.cl-rootBox]:w-full [&_.cl-rootBox]:max-w-full">
+            <div
+              className="flex min-w-0 justify-center overflow-hidden [&_.cl-card]:max-w-full [&_.cl-rootBox]:w-full [&_.cl-rootBox]:max-w-full"
+              onFocusCapture={handleSignupFormFocus}
+              onClickCapture={handleSignupFormClick}
+            >
               {mode === 'sign-up' ? (
                 <SignUp routing="hash" signInUrl="/login" afterSignUpUrl={destination} />
               ) : (
