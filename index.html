@@ -21,7 +21,7 @@
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-3BEQ6WDW5M"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
+      window.gtag = window.gtag || function gtag(){window.dataLayer.push(arguments);}
       gtag('js', new Date());
 
       gtag('config', 'G-3BEQ6WDW5M');
