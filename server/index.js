@@ -41,7 +41,8 @@ if (process.env.CLERK_SECRET_KEY && clerkPublishableKey) {
   app.use((req, res, next) => {
     const isPublicPage = req.method === 'GET' && (req.path === '/' || req.path.startsWith('/articles/'));
     const isPublicOgImage = req.method === 'GET' && /^\/api\/articles\/[^/]+\/og-image$/.test(req.path);
-    if (isPublicPage || isPublicOgImage) return next();
+    const isCrawlerFile = req.method === 'GET' && (req.path === '/robots.txt' || req.path === '/sitemap.xml');
+    if (isPublicPage || isPublicOgImage || isCrawlerFile) return next();
     return clerk(req, res, next);
   });
 }
@@ -138,6 +139,15 @@ function escapeHtml(value = '') {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function escapeXml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 function stripMetaTags(html, selectors) {
@@ -492,6 +502,58 @@ async function performArticleGeneration(input, userId) {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/robots.txt', (req, res) => {
+  res
+    .type('text/plain')
+    .send(`User-agent: *
+Allow: /
+Allow: /api/articles/*/og-image
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /login
+Disallow: /api/
+
+Sitemap: ${absoluteUrl(req, '/sitemap.xml')}
+`);
+});
+
+app.get('/sitemap.xml', requireDatabase, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      select slug, created_at, updated_at
+      from articles
+      where status = 'published'
+      order by coalesce(updated_at, created_at) desc
+    `);
+
+    const urls = [
+      { loc: absoluteUrl(req, '/'), changefreq: 'daily', priority: '1.0' },
+      ...rows.map((article) => ({
+        loc: absoluteUrl(req, `/articles/${article.slug}`),
+        lastmod: new Date(article.updated_at || article.created_at).toISOString(),
+        changefreq: 'weekly',
+        priority: '0.8'
+      }))
+    ];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((url) => `  <url>
+    <loc>${escapeXml(url.loc)}</loc>
+${url.lastmod ? `    <lastmod>${escapeXml(url.lastmod)}</lastmod>
+` : ''}    <changefreq>${escapeXml(url.changefreq)}</changefreq>
+    <priority>${escapeXml(url.priority)}</priority>
+  </url>`).join('\n')}
+</urlset>
+`;
+
+    res.type('application/xml').send(xml);
+  } catch (error) {
+    console.error(error);
+    res.status(500).type('text/plain').send('Unable to build sitemap.');
+  }
 });
 
 app.get('/fb-health', (_req, res) => {
