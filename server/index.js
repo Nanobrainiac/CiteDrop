@@ -91,6 +91,10 @@ Rules:
 - Each extracted claim must include verdict true, false, mixed, or unsure; confidenceScore 0-100; confidenceLabel high, medium, or low; a short verdictSummary; and support reasoning.
 - Title must be short and broad enough to cover all checked claims. Put nuance in subtitle and summary, not the title.
 - Article body must be an array of sections with heading and paragraphs. Each paragraph must be an object with text and chartIds.
+- Write substantial article text. Return 3 to 6 body sections and at least 7 total paragraphs.
+- Each body paragraph should usually be 90 to 160 words. Short transition paragraphs are allowed, but most paragraphs need specific evidence, context, caveats, and interpretation.
+- Not every paragraph needs a chart. Use chartIds only when a visualization directly supports that paragraph.
+- For each checked claim, include enough body text to explain what is supported, what is not supported, and what reasonable caveats remain.
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
 - Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
 - Place chart IDs in the chartIds array immediately after paragraphs they help explain. Leave chartIds empty when no chart belongs after that paragraph.
@@ -259,6 +263,8 @@ function buildGenerationInput(input) {
       'Extract up to 3 concrete claims from the user prompt and judge each as true, false, mixed, or unsure.',
       'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
       'Every key claim must identify source support or uncertainty.',
+      'The final article should have 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and should provide evidence, context, caveats, and interpretation.',
+      'Not every paragraph should have a chart. Charts are supporting evidence, not the article structure.',
       'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
       'Every visualization must correspond to article text. Do not return a visualization unless the article body includes a paragraph whose chartIds references that visualization id.',
       'Use line or area only for a continuous metric with 3 or more comparable time points.',
@@ -520,7 +526,7 @@ async function performArticleGeneration(input, userId) {
         role: 'user',
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
-          bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
+          bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
           claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
           chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           requiredShape: articleJsonShape,
