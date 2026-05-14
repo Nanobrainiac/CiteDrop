@@ -22,7 +22,7 @@ export default function LoginPage() {
       <div className="flex min-w-0 flex-col justify-center">
         <p className="text-sm font-bold uppercase text-acid">Admin access</p>
         <h1 className="mt-3 text-4xl font-black leading-none sm:text-5xl">Create and manage research pages.</h1>
-        <p className="mt-5 text-lg leading-8 text-white/60">Public readers can browse without accounts. Clerk handles sign-in and account security for content creators.</p>
+        <p className="mt-5 text-lg leading-8 text-white/60">Create polished, source-backed research pages in seconds and share them anywhere instantly.</p>
       </div>
 
       <div className="glass-panel min-w-0 overflow-hidden rounded-lg p-3 sm:p-6">
