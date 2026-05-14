@@ -81,7 +81,7 @@ Rules:
 - If a requested coverage point cannot be supported by sources, include it as a limitation instead of skipping or inventing facts.
 - If the user requests multiple periods, entities, terms, or comparisons, cover each one explicitly.
 - Separate factual claims from analysis or opinion.
-- Infer the article category from the user's research question.
+- Infer the article category from the user's research question. Prefer one of the provided existingCategories when it reasonably fits. Create a new category only when none of the existing categories fit well.
 - Do not assume an intended position from the user. Answer the research question based on the evidence, including counterpoints and limitations where relevant.
 - Avoid defamatory, harassing, or demeaning language about private people or protected groups.
 - Prefer careful, measured persuasion over inflammatory rhetoric.
@@ -246,13 +246,15 @@ function injectHomeMeta(html, req) {
     .replace('</head>', `${meta}\n  </head>`);
 }
 
-function buildGenerationInput(input) {
+function buildGenerationInput(input, existingCategories = []) {
   return JSON.stringify({
     task: 'Research the user question using web search and return a source-grounded research brief.',
     userQuestion: input.prompt,
     requestedTone: input.tone,
+    existingCategories,
     inferenceRequirements: [
-      'Infer the best category from the question.',
+      'Infer the best category from the question. Prefer an existing category if it reasonably fits.',
+      'Only create a new category if none of the existingCategories fit the article topic.',
       'Infer the useful chart count and chart types from the evidence.',
       'Do not use an intended position unless the user clearly asks for a one-sided argument. Prefer evidence-led framing.'
     ],
@@ -497,7 +499,19 @@ function publicGenerationError(error) {
   return error?.message || 'Article generation failed.';
 }
 
+async function listExistingCategories() {
+  const { rows } = await query(`
+    select distinct category
+    from articles
+    where nullif(trim(category), '') is not null
+    order by category asc
+    limit 80
+  `);
+  return rows.map((row) => row.category);
+}
+
 async function performArticleGeneration(input, userId) {
+  const existingCategories = await listExistingCategories();
   const researchResponse = await openai.responses.create({
     model: process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
     tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
@@ -506,7 +520,7 @@ async function performArticleGeneration(input, userId) {
     include: ['web_search_call.action.sources'],
     input: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: buildGenerationInput(input) }
+      { role: 'user', content: buildGenerationInput(input, existingCategories) }
     ]
   });
 
@@ -529,8 +543,10 @@ async function performArticleGeneration(input, userId) {
           bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
           claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
           chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
+          categoryRules: 'Choose the best category from existingCategories whenever one reasonably fits. Reuse exact spelling and capitalization. Create a new category only if the existing list has no good fit.',
           requiredShape: articleJsonShape,
           originalRequest: input,
+          existingCategories,
           researchBrief: researchResponse.output_text,
           consultedSources: responseSources
         })
