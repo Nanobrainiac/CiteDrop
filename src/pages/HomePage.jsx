@@ -4,6 +4,7 @@ import { ArrowRight, ShieldCheck } from 'lucide-react';
 import ArticleGrid from '../components/ArticleGrid.jsx';
 import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
 import LoadingState from '../components/LoadingState.jsx';
+import Pagination from '../components/Pagination.jsx';
 import SearchAndFilters from '../components/SearchAndFilters.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticles } from '../lib/api.js';
@@ -27,29 +28,39 @@ const featuredEvidence = {
   sources: [{}, {}, {}, {}, {}, {}, {}, {}, {}]
 };
 
+const pageSize = 9;
+
 export default function HomePage() {
   const [articles, setArticles] = useState([]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalArticles, setTotalArticles] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     const timeout = setTimeout(() => {
       setLoading(true);
-      getArticles({ search, category })
+      getArticles({ search, category, page, pageSize })
         .then((result) => {
           setArticles(result.articles);
+          setTotalArticles(result.count || 0);
           setError('');
         })
         .catch(() => {
           setArticles(demoArticles);
+          setTotalArticles(demoArticles.length);
           setError('');
         })
         .finally(() => setLoading(false));
     }, 250);
 
     return () => clearTimeout(timeout);
+  }, [search, category, page]);
+
+  useEffect(() => {
+    setPage(1);
   }, [search, category]);
 
   const categories = useMemo(() => [...new Set(articles.map((article) => article.category).filter(Boolean))], [articles]);
@@ -85,7 +96,12 @@ export default function HomePage() {
           </div>
           <SearchAndFilters search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={categories} />
         </div>
-        {error ? <div className="glass-panel rounded-lg p-6 text-white/65">{error}</div> : loading ? <LoadingState label="Loading articles" /> : <ArticleGrid articles={articles} />}
+        {error ? <div className="glass-panel rounded-lg p-6 text-white/65">{error}</div> : loading ? <LoadingState label="Loading articles" /> : (
+          <>
+            <ArticleGrid articles={articles} />
+            <Pagination page={page} pageSize={pageSize} total={totalArticles} onPageChange={setPage} label="articles" />
+          </>
+        )}
       </section>
     </>
   );
