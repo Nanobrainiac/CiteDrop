@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { generateArticle } from '../lib/api.js';
+import { trackEvent } from '../lib/analytics.js';
 import { WandSparkles } from 'lucide-react';
 
 export default function PromptBuilder({ onGenerated }) {
@@ -20,8 +21,18 @@ export default function PromptBuilder({ onGenerated }) {
     setError('');
     try {
       const result = await generateArticle(form);
+      trackEvent('article_generated', {
+        article_id: result.article?.id,
+        article_slug: result.article?.slug,
+        article_category: result.article?.category,
+        tone: form.tone
+      });
       onGenerated?.(result.article);
     } catch (err) {
+      trackEvent('generate_failed', {
+        tone: form.tone,
+        error_message: err.message
+      });
       setError(err.message);
     } finally {
       setLoading(false);

@@ -1,6 +1,16 @@
 import { Search } from 'lucide-react';
+import { trackEvent } from '../lib/analytics.js';
 
 export default function SearchAndFilters({ search, setSearch, category, setCategory, categories }) {
+  function trackSearch(value) {
+    const term = value.trim();
+    if (term.length < 3) return;
+    trackEvent('search_used', {
+      search_term: term,
+      search_length: term.length
+    });
+  }
+
   return (
     <div className="glass-panel rounded-lg p-3">
       <div className="flex flex-col gap-3 md:flex-row">
@@ -9,7 +19,13 @@ export default function SearchAndFilters({ search, setSearch, category, setCateg
           <span className="sr-only">Search articles</span>
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+            }}
+            onBlur={(event) => trackSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') trackSearch(event.currentTarget.value);
+            }}
             placeholder="Search research, claims, topics..."
             className="h-12 w-full rounded-full border border-white/10 bg-white/8 pl-12 pr-4 text-white outline-none placeholder:text-white/35 focus:border-acid"
           />
@@ -18,7 +34,10 @@ export default function SearchAndFilters({ search, setSearch, category, setCateg
           <span className="sr-only">Category</span>
           <select
             value={category}
-            onChange={(event) => setCategory(event.target.value)}
+            onChange={(event) => {
+              setCategory(event.target.value);
+              trackEvent('category_filter_used', { category: event.target.value || 'all' });
+            }}
             className="h-12 w-full rounded-full border border-white/10 bg-panelSoft px-4 text-white outline-none focus:border-acid md:w-56"
           >
             <option value="">All categories</option>

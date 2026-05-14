@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../state/AuthContext.jsx';
+import { trackEvent } from '../lib/analytics.js';
 
 export default function LoginPage() {
   const { user, configured } = useAuth();
@@ -8,6 +10,10 @@ export default function LoginPage() {
   const [params, setParams] = useSearchParams();
   const mode = params.get('mode') === 'sign-up' ? 'sign-up' : 'sign-in';
   const destination = location.state?.from?.pathname || '/dashboard';
+
+  useEffect(() => {
+    trackEvent(mode === 'sign-up' ? 'signup_started' : 'login_started', { destination });
+  }, [destination, mode]);
 
   if (user) return <Navigate to={destination} replace />;
 

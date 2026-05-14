@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react';
+import { trackEvent } from '../lib/analytics.js';
 
 export default function SourceList({ sources = [] }) {
   if (!sources.length) return null;
@@ -14,7 +15,17 @@ export default function SourceList({ sources = [] }) {
             </div>
             <p className="mt-2 break-words text-sm leading-6 text-white/58">{source.note}</p>
             {source.url ? (
-              <a className="mt-3 inline-flex max-w-full items-center gap-2 break-all text-sm font-bold text-acid hover:text-white" href={source.url} target="_blank" rel="noreferrer">
+              <a
+                className="mt-3 inline-flex max-w-full items-center gap-2 break-all text-sm font-bold text-acid hover:text-white"
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => trackEvent('source_click', {
+                  source_title: source.title,
+                  source_publisher: source.publisher,
+                  source_url: source.url
+                })}
+              >
                 Visit source <ExternalLink size={15} />
               </a>
             ) : null}

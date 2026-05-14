@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Copy, Eye, Send, Trash2, Undo2 } from 'lucide-react';
 import { deleteArticle, updateArticle } from '../lib/api.js';
+import { trackEvent } from '../lib/analytics.js';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
 
@@ -8,6 +9,14 @@ export default function MyArticleTable({ articles, onChange }) {
   async function togglePublished(article) {
     const nextStatus = article.status === 'published' ? 'draft' : 'published';
     await updateArticle(article.id, { status: nextStatus });
+    if (nextStatus === 'published') {
+      trackEvent('article_published', {
+        article_id: article.id,
+        article_slug: article.slug,
+        article_category: article.category,
+        location: 'article_table'
+      });
+    }
     onChange();
   }
 
@@ -19,6 +28,12 @@ export default function MyArticleTable({ articles, onChange }) {
 
   async function copyLink(article) {
     await navigator.clipboard.writeText(articleUrl(article.slug));
+    trackEvent('article_shared', {
+      article_id: article.id,
+      article_slug: article.slug,
+      article_category: article.category,
+      method: 'copy_link_table'
+    });
   }
 
   return (

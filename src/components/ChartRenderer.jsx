@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+import { trackEvent } from '../lib/analytics.js';
 
 const colors = ['#e6ff3f', '#657400', '#c92605', '#f7f7f2', '#35372f'];
 
@@ -196,7 +197,15 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
         const isComparison = type === 'comparison';
 
         return (
-          <article key={`${chart.title}-${index}`} className="glass-panel min-w-0 overflow-hidden rounded-lg p-4 sm:p-5">
+          <article
+            key={`${chart.title}-${index}`}
+            className="glass-panel min-w-0 overflow-hidden rounded-lg p-4 sm:p-5"
+            onClick={() => trackEvent('chart_interaction', {
+              chart_title: chart.title,
+              chart_type: type,
+              chart_index: index + 1
+            })}
+          >
             <div className="mb-4 flex flex-col gap-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">

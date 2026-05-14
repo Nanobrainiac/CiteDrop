@@ -9,6 +9,7 @@ import SectionTabs from '../components/SectionTabs.jsx';
 import SourceList from '../components/SourceList.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticle, updateArticle } from '../lib/api.js';
+import { trackEvent } from '../lib/analytics.js';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
 
@@ -27,6 +28,12 @@ export default function ArticlePage() {
       .then((result) => {
         setArticle(result.article);
         document.title = `${result.article.title} | CiteDrop`;
+        trackEvent('article_view', {
+          article_id: result.article.id,
+          article_slug: result.article.slug,
+          article_category: result.article.category,
+          article_status: result.article.status
+        });
       })
       .catch((err) => {
         const demoArticle = demoArticles.find((item) => item.slug === slug);
@@ -59,6 +66,12 @@ export default function ArticlePage() {
 
   async function copyLink() {
     await navigator.clipboard.writeText(articleUrl(article.slug));
+    trackEvent('article_shared', {
+      article_id: article.id,
+      article_slug: article.slug,
+      article_category: article.category,
+      method: 'copy_link'
+    });
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }
@@ -67,6 +80,12 @@ export default function ArticlePage() {
     const url = articleUrl(article.slug);
     if (navigator.share) {
       await navigator.share({ title: article.title, text: article.summary, url });
+      trackEvent('article_shared', {
+        article_id: article.id,
+        article_slug: article.slug,
+        article_category: article.category,
+        method: 'native_share'
+      });
     } else {
       copyLink();
     }
@@ -78,6 +97,12 @@ export default function ArticlePage() {
     try {
       const result = await updateArticle(article.id, { status: 'published' });
       setArticle(result.article);
+      trackEvent('article_published', {
+        article_id: result.article.id,
+        article_slug: result.article.slug,
+        article_category: result.article.category,
+        location: 'article_page'
+      });
     } catch (err) {
       setPublishError(err.message);
     } finally {

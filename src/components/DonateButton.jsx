@@ -1,4 +1,5 @@
 import { Heart } from 'lucide-react';
+import { trackEvent } from '../lib/analytics.js';
 
 const donateUrl = 'https://donate.stripe.com/7sY6oH1Uv0Ih3IYaWZ7Zu00';
 
@@ -8,6 +9,7 @@ export default function DonateButton({ className = '', compact = false }) {
       href={donateUrl}
       target="_blank"
       rel="noreferrer"
+      onClick={() => trackEvent('donation_click', { link_url: donateUrl })}
       className={`inline-flex items-center justify-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white ${className}`}
     >
       <Heart size={18} />

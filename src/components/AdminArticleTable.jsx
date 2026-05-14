@@ -1,12 +1,21 @@
 import { Link } from 'react-router-dom';
 import { Copy, Eye, Trash2 } from 'lucide-react';
 import { deleteArticle, updateArticle } from '../lib/api.js';
+import { trackEvent } from '../lib/analytics.js';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
 
 export default function AdminArticleTable({ articles, onChange }) {
   async function handleUpdate(article, field, value) {
     await updateArticle(article.id, { [field]: value });
+    if (field === 'status' && value === 'published') {
+      trackEvent('article_published', {
+        article_id: article.id,
+        article_slug: article.slug,
+        article_category: article.category,
+        location: 'admin_table'
+      });
+    }
     onChange();
   }
 
@@ -18,6 +27,12 @@ export default function AdminArticleTable({ articles, onChange }) {
 
   async function copyLink(article) {
     await navigator.clipboard.writeText(articleUrl(article.slug));
+    trackEvent('article_shared', {
+      article_id: article.id,
+      article_slug: article.slug,
+      article_category: article.category,
+      method: 'copy_link_admin'
+    });
   }
 
   return (
