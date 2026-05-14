@@ -20,7 +20,7 @@ export default function LoginPage() {
   return (
     <section className="mx-auto grid max-w-6xl gap-8 overflow-x-hidden px-3 py-10 sm:px-6 sm:py-16 lg:grid-cols-[.9fr_1.1fr] lg:px-8">
       <div className="flex min-w-0 flex-col justify-center">
-        <p className="text-sm font-bold uppercase text-acid">Admin access</p>
+        <p className="text-sm font-bold uppercase text-acid">FREE ACCOUNT</p>
         <h1 className="mt-3 text-4xl font-black leading-none sm:text-5xl">Create and manage research pages.</h1>
         <p className="mt-5 text-lg leading-8 text-white/60">Create polished, source-backed research pages in seconds and share them anywhere instantly.</p>
       </div>
