@@ -89,9 +89,13 @@ Rules:
 - Article body must be an array of sections with heading and paragraphs.
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
 - Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
-- Include 2 to 4 useful charts. Each chart must answer a specific question, state a takeaway, identify units, note source support, and name limitations.
-- Prefer sourced quantitative data for timeline, comparison, or outcome charts. If quantitative data is unavailable, create qualitative evidence maps such as claim support strength, source mix, timeline of sourced events, or argument coverage. Clearly label qualitative charts as qualitative or illustrative.
-- Charts must use simple JSON renderable as bar, line, area, or pie charts. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
+- Include 2 to 4 useful visualizations. Each visualization must answer a specific question, state a takeaway, identify units, note source support, and name limitations.
+- Use timeline for dated events, legal/history sequences, campaign promise chronology, or any data where the main value is sequence rather than numeric trend.
+- Use line or area only for one continuous metric measured across 3 or more comparable time points. Do not use line charts for one-off events, category rankings, or single-month snapshots.
+- Use bar for discrete comparisons, scorecard for qualitative evidence/claim support, and pie only when values are parts of the same whole.
+- Never insert zero values to mean "data unavailable." Omit unavailable items or explain the limitation.
+- Prefer sourced quantitative data for comparison or outcome charts. If quantitative data is unavailable, create qualitative evidence maps such as claim support strength, source mix, timeline of sourced events, or argument coverage. Clearly label qualitative charts as qualitative or illustrative.
+- Visualizations must use simple JSON renderable as bar, line, area, pie, timeline, or scorecard. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
 - Never cite a URL that was not actually consulted.`;
 
 const articleJsonShape = {
@@ -110,7 +114,7 @@ const articleJsonShape = {
     {
       title: 'Chart title',
       question: 'Question this chart answers',
-      type: 'bar',
+      type: 'bar | line | area | pie | timeline | scorecard',
       takeaway: 'Main interpretation in one sentence',
       units: 'Percent, dollars, index score, count, qualitative score, etc.',
       sourceNote: 'Source basis for the chart',
@@ -226,7 +230,10 @@ function buildGenerationInput(input) {
       'Before writing, identify the core coverage requirements in the user prompt and ensure each is addressed explicitly.',
       'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
       'Every key claim must identify source support or uncertainty.',
-      'Return 2 to 4 useful charts. Prefer one timeline or comparison chart, one evidence/claim support chart, and one source mix or argument coverage chart.',
+      'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
+      'Use line or area only for a continuous metric with 3 or more comparable time points.',
+      'Use timeline for sequences of events and scorecard for qualitative evidence maps.',
+      'Do not use zero as a placeholder for unavailable data.',
       'If no sourced numerical dataset is found, return qualitative evidence maps with labels and numeric scores, and clearly mark them as qualitative.'
     ],
     sourceUrls: input.sourceUrls
@@ -304,7 +311,7 @@ const articleJsonSchema = {
           properties: {
             title: { type: 'string' },
             question: { type: 'string' },
-            type: { type: 'string', enum: ['bar', 'line', 'area', 'pie'] },
+            type: { type: 'string', enum: ['bar', 'line', 'area', 'pie', 'timeline', 'scorecard'] },
             takeaway: { type: 'string' },
             units: { type: 'string' },
             sourceNote: { type: 'string' },
@@ -428,7 +435,7 @@ async function performArticleGeneration(input, userId) {
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
           bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array.',
-          chartRules: 'Return 2 to 4 charts. Each chart must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Prefer concrete sourced numbers; use qualitative evidence maps only when sourced numbers are unavailable.',
+          chartRules: 'Return 2 to 4 visualizations. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Use timeline for dated event sequences. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           requiredShape: articleJsonShape,
           originalRequest: input,
           researchBrief: researchResponse.output_text,

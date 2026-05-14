@@ -40,6 +40,60 @@ function ChartTooltip({ active, payload, label, unit }) {
   );
 }
 
+function TimelineView({ data }) {
+  return (
+    <div className="rounded-md border border-white/10 bg-black/25 p-4">
+      <div className="relative space-y-4 before:absolute before:left-3 before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-acid/30">
+        {data.map((item, index) => (
+          <div key={`${item.label}-${index}`} className="relative min-w-0 pl-9">
+            <span className="absolute left-0 top-1 grid h-6 w-6 place-items-center rounded-full border border-acid/50 bg-ink text-[10px] font-black text-acid">{index + 1}</span>
+            <div className="rounded-md bg-white/[0.04] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {item.date ? <span className="rounded-full bg-acid px-2.5 py-1 text-xs font-black text-ink">{item.date}</span> : null}
+                {item.group ? <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs uppercase text-white/50">{item.group}</span> : null}
+              </div>
+              <p className="mt-3 break-words font-black text-white">{item.label}</p>
+              {item.note ? <p className="mt-2 break-words text-sm leading-6 text-white/62">{item.note}</p> : null}
+              {item.source ? <p className="mt-2 text-xs text-white/42">Source: {item.source}</p> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScorecardView({ data, unit }) {
+  const values = data.map((item) => Number(item.value)).filter(Number.isFinite);
+  const maxValue = Math.max(100, ...values);
+
+  return (
+    <div className="grid gap-3">
+      {data.map((item, index) => {
+        const value = Number(item.value) || 0;
+        const width = `${Math.max(4, Math.min(100, (value / maxValue) * 100))}%`;
+        return (
+          <div key={`${item.label}-${index}`} className="rounded-md border border-white/10 bg-black/25 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="break-words font-black text-white">{item.label}</p>
+                {item.note ? <p className="mt-1 break-words text-sm leading-6 text-white/58">{item.note}</p> : null}
+              </div>
+              <span className="shrink-0 rounded-full bg-acid px-3 py-1 text-sm font-black text-ink">
+                {value}{unit && unit !== 'none' ? ` ${unit}` : ''}
+              </span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-acid" style={{ width }} />
+            </div>
+            {item.source ? <p className="mt-2 text-xs text-white/42">Source: {item.source}</p> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ChartRenderer({ charts = [], fallbackData = [] }) {
   const normalizedCharts = charts.length ? charts : [{
     title: 'Evidence Coverage',
@@ -62,6 +116,8 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
         const type = chart.type || 'bar';
         const unit = chart.units || '';
         const xKey = data.some((item) => item.date) ? 'date' : 'label';
+        const isTimeline = type === 'timeline';
+        const isScorecard = type === 'scorecard';
 
         return (
           <article key={`${chart.title}-${index}`} className="glass-panel min-w-0 overflow-hidden rounded-lg p-4 sm:p-5">
@@ -85,43 +141,49 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                 <p className="text-sm leading-6 text-white/50">{chart.note}</p>
               ) : null}
             </div>
-            <div className="h-72 min-w-0 overflow-hidden rounded-md border border-white/10 bg-black/25 p-2 sm:p-3">
-              <ResponsiveContainer width="100%" height="100%">
-                {type === 'line' ? (
-                  <LineChart data={data}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" />
-                    <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
-                    <YAxis stroke="rgba(255,255,255,0.45)" />
-                    <Tooltip content={<ChartTooltip unit={unit} />} />
-                    <Line type="monotone" dataKey={valueKey} stroke="#e6ff3f" strokeWidth={3} dot={false} />
-                  </LineChart>
-                ) : type === 'area' ? (
-                  <AreaChart data={data}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" />
-                    <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
-                    <YAxis stroke="rgba(255,255,255,0.45)" />
-                    <Tooltip content={<ChartTooltip unit={unit} />} />
-                    <Area type="monotone" dataKey={valueKey} stroke="#e6ff3f" fill="#657400" fillOpacity={0.55} />
-                  </AreaChart>
-                ) : type === 'pie' ? (
-                  <PieChart>
-                    <Tooltip content={<ChartTooltip unit={unit} />} />
-                    <Pie data={data} dataKey={valueKey} nameKey="label" innerRadius={55} outerRadius={90}>
-                      {data.map((_entry, cellIndex) => <Cell key={cellIndex} fill={colors[cellIndex % colors.length]} />)}
-                    </Pie>
-                  </PieChart>
-                ) : (
-                  <BarChart data={data}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" />
-                    <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
-                    <YAxis stroke="rgba(255,255,255,0.45)" />
-                    <Tooltip content={<ChartTooltip unit={unit} />} />
-                    <Bar dataKey={valueKey} fill="#e6ff3f" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                )}
-              </ResponsiveContainer>
-            </div>
-            {data.length ? (
+            {isTimeline ? (
+              <TimelineView data={data} />
+            ) : isScorecard ? (
+              <ScorecardView data={data} unit={unit} />
+            ) : (
+              <div className="h-72 min-w-0 overflow-hidden rounded-md border border-white/10 bg-black/25 p-2 sm:p-3">
+                <ResponsiveContainer width="100%" height="100%">
+                  {type === 'line' ? (
+                    <LineChart data={data}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+                      <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
+                      <YAxis stroke="rgba(255,255,255,0.45)" />
+                      <Tooltip content={<ChartTooltip unit={unit} />} />
+                      <Line type="monotone" dataKey={valueKey} stroke="#e6ff3f" strokeWidth={3} dot={false} />
+                    </LineChart>
+                  ) : type === 'area' ? (
+                    <AreaChart data={data}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+                      <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
+                      <YAxis stroke="rgba(255,255,255,0.45)" />
+                      <Tooltip content={<ChartTooltip unit={unit} />} />
+                      <Area type="monotone" dataKey={valueKey} stroke="#e6ff3f" fill="#657400" fillOpacity={0.55} />
+                    </AreaChart>
+                  ) : type === 'pie' ? (
+                    <PieChart>
+                      <Tooltip content={<ChartTooltip unit={unit} />} />
+                      <Pie data={data} dataKey={valueKey} nameKey="label" innerRadius={55} outerRadius={90}>
+                        {data.map((_entry, cellIndex) => <Cell key={cellIndex} fill={colors[cellIndex % colors.length]} />)}
+                      </Pie>
+                    </PieChart>
+                  ) : (
+                    <BarChart data={data}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+                      <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
+                      <YAxis stroke="rgba(255,255,255,0.45)" />
+                      <Tooltip content={<ChartTooltip unit={unit} />} />
+                      <Bar dataKey={valueKey} fill="#e6ff3f" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  )}
+                </ResponsiveContainer>
+              </div>
+            )}
+            {data.length && !isTimeline && !isScorecard ? (
               <div className="mt-4 grid gap-2">
                 {data.slice(0, 4).map((item, itemIndex) => (
                   <div key={`${item.label}-${itemIndex}`} className="rounded-md bg-white/[0.04] p-3 text-xs leading-5 text-white/55">
