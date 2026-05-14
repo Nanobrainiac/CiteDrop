@@ -13,7 +13,7 @@ function confidenceScore(claims) {
 
 export default function EvidenceScorePanel({ claims = [], charts = [], sources = [] }) {
   const score = confidenceScore(claims);
-  const scoreLabel = claims.length ? `${score}` : '0.0';
+  const scoreLabel = claims.length ? `${score}%` : '0.0%';
   const blocks = [
     'bg-ember h-12',
     'bg-moss h-20',
@@ -25,10 +25,10 @@ export default function EvidenceScorePanel({ claims = [], charts = [], sources =
   return (
     <section className="glass-panel chart-grid min-w-0 overflow-hidden rounded-lg p-4 sm:p-6">
       <div className="rounded-lg border border-white/10 bg-black/30 p-4 sm:p-5">
-        <p className="text-sm uppercase text-white/45">Claim Strength Index</p>
+        <p className="text-sm uppercase text-white/45">Report Accuracy Confidence</p>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <span className="text-5xl font-black leading-none text-acid sm:text-6xl">{scoreLabel}</span>
-          <span className="pb-2 text-white/50">verified / qualified</span>
+          <span className="pb-2 text-white/50">confidence in this assessment</span>
         </div>
         <div className="mt-8 grid grid-cols-5 gap-3">
           {blocks.map((className, index) => (

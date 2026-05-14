@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { Copy, Send, Share2 } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { ArrowRight, Copy, Send, Share2 } from 'lucide-react';
 import ChartRenderer from '../components/ChartRenderer.jsx';
 import ClaimList from '../components/ClaimList.jsx';
 import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
@@ -143,13 +143,18 @@ export default function ArticlePage() {
               <p className="mt-3 text-base leading-7 text-white/72">{article.summary}</p>
             </div>
             {article.status === 'published' ? (
-              <div className="mt-8 flex flex-wrap gap-3">
-                <button onClick={share} className="inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
-                  <Share2 size={18} /> Share
-                </button>
-                <button onClick={copyLink} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 font-bold text-white/75 hover:bg-white/10">
-                  <Copy size={18} /> {copied ? 'Copied' : 'Copy link'}
-                </button>
+              <div className="mt-8">
+                <div className="flex flex-wrap gap-3">
+                  <button onClick={share} className="inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
+                    <Share2 size={18} /> Share
+                  </button>
+                  <button onClick={copyLink} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 font-bold text-white/75 hover:bg-white/10">
+                    <Copy size={18} /> {copied ? 'Copied' : 'Copy link'}
+                  </button>
+                </div>
+                <Link to="/dashboard" className="mt-4 inline-flex items-center gap-2 rounded-full border border-acid/40 bg-acid/10 px-5 py-3 font-black text-acid hover:bg-acid hover:text-ink">
+                  Generate your own research articles in seconds for free. <ArrowRight size={18} />
+                </Link>
               </div>
             ) : (
               <div className="mt-8">

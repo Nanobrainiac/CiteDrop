@@ -33,8 +33,8 @@ function ClaimScore({ claim }) {
   const score = getClaimScore(claim);
   return (
     <div className="shrink-0 rounded-md border border-acid/20 bg-black/25 p-3 text-center sm:w-28">
-      <p className="text-[10px] font-bold uppercase text-white/45">Index</p>
-      <p className="mt-1 text-3xl font-black leading-none text-acid">{score}</p>
+      <p className="text-[10px] font-bold uppercase text-white/45">Verdict Confidence</p>
+      <p className="mt-1 text-3xl font-black leading-none text-acid">{score}%</p>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
         <div className="h-full rounded-full bg-acid" style={{ width: `${score}%` }} />
       </div>
