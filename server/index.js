@@ -87,9 +87,13 @@ Rules:
 - Prefer careful, measured persuasion over inflammatory rhetoric.
 - If tone is "Silly but evidence-based", use playful phrasing and light wit while keeping claims, uncertainty, sources, and safety standards serious.
 - Sources must include title, publisher, url, date when known, and note explaining the exact claim(s) it supports.
-- Article body must be an array of sections with heading and paragraphs.
+- Extract up to 3 concrete claims from the user's prompt. Do not invent claims the user did not make.
+- Each extracted claim must include verdict true, false, mixed, or unsure; confidenceScore 0-100; confidenceLabel high, medium, or low; a short verdictSummary; and support reasoning.
+- Title must be short and broad enough to cover all checked claims. Put nuance in subtitle and summary, not the title.
+- Article body must be an array of sections with heading and paragraphs. Each paragraph must be an object with text and chartIds.
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
 - Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
+- Place chart IDs in the chartIds array immediately after paragraphs they help explain. Leave chartIds empty when no chart belongs after that paragraph.
 - Include 2 to 4 useful visualizations. Each visualization must answer a specific question, state a takeaway, identify units, note source support, and name limitations.
 - Use timeline for dated events, legal/history sequences, campaign promise chronology, or any data where the main value is sequence rather than numeric trend.
 - Timeline date fields must be human-readable and precision-honest. Use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026"; do not invent exact month/day values such as YYYY-01-01 when only a year or era is known.
@@ -109,13 +113,22 @@ const articleJsonShape = {
   summary: 'Short public card summary',
   category: 'Category',
   body: [
-    { heading: 'Section heading', paragraphs: ['Paragraph text'] }
+    { heading: 'Section heading', paragraphs: [{ text: 'Paragraph text', chartIds: ['chart-id-when-relevant'] }] }
   ],
   keyClaims: [
-    { claim: 'Claim text', type: 'fact|analysis|opinion', confidence: 'high|medium|low', support: 'Why this is supported or what is uncertain' }
+    {
+      claim: 'Claim from the user prompt',
+      verdict: 'true|false|mixed|unsure',
+      verdictSummary: 'Short plain-English judgment',
+      confidenceScore: 82,
+      confidenceLabel: 'high|medium|low',
+      support: 'Why this verdict is supported or uncertain',
+      sourceIds: ['source-id']
+    }
   ],
   charts: [
     {
+      id: 'stable-chart-id',
       title: 'Chart title',
       question: 'Question this chart answers',
       type: 'bar | line | area | pie | timeline | scorecard | metrics | comparison',
@@ -128,7 +141,7 @@ const articleJsonShape = {
     }
   ],
   sources: [
-    { title: 'Source title', publisher: 'Publisher', url: 'https://example.com/specific-page', date: 'YYYY-MM-DD when known', note: 'Specific claim(s) this supports' }
+    { id: 'stable-source-id', title: 'Source title', publisher: 'Publisher', url: 'https://example.com/specific-page', date: 'YYYY-MM-DD when known', note: 'Specific claim(s) this supports' }
   ]
 };
 
@@ -241,6 +254,7 @@ function buildGenerationInput(input) {
       'Search for and use multiple specific source pages.',
       'Do not cite generic homepages when a specific article/report/page is needed.',
       'Before writing, identify the core coverage requirements in the user prompt and ensure each is addressed explicitly.',
+      'Extract up to 3 concrete claims from the user prompt and judge each as true, false, mixed, or unsure.',
       'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
       'Every key claim must identify source support or uncertainty.',
       'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
@@ -295,22 +309,37 @@ const articleJsonSchema = {
           required: ['heading', 'paragraphs'],
           properties: {
             heading: { type: 'string' },
-            paragraphs: { type: 'array', items: { type: 'string' } }
+            paragraphs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['text', 'chartIds'],
+                properties: {
+                  text: { type: 'string' },
+                  chartIds: { type: 'array', items: { type: 'string' } }
+                }
+              }
+            }
           }
         }
       },
       keyClaims: {
         type: 'array',
-        minItems: 4,
+        minItems: 1,
+        maxItems: 3,
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['claim', 'type', 'confidence', 'support'],
+          required: ['claim', 'verdict', 'verdictSummary', 'confidenceScore', 'confidenceLabel', 'support', 'sourceIds'],
           properties: {
             claim: { type: 'string' },
-            type: { type: 'string', enum: ['fact', 'analysis', 'opinion'] },
-            confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-            support: { type: 'string' }
+            verdict: { type: 'string', enum: ['true', 'false', 'mixed', 'unsure'] },
+            verdictSummary: { type: 'string' },
+            confidenceScore: { type: 'number', minimum: 0, maximum: 100 },
+            confidenceLabel: { type: 'string', enum: ['high', 'medium', 'low'] },
+            support: { type: 'string' },
+            sourceIds: { type: 'array', items: { type: 'string' } }
           }
         }
       },
@@ -321,8 +350,9 @@ const articleJsonSchema = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['title', 'question', 'type', 'takeaway', 'units', 'sourceNote', 'limitation', 'note', 'data'],
+          required: ['id', 'title', 'question', 'type', 'takeaway', 'units', 'sourceNote', 'limitation', 'note', 'data'],
           properties: {
+            id: { type: 'string' },
             title: { type: 'string' },
             question: { type: 'string' },
             type: { type: 'string', enum: ['bar', 'line', 'area', 'pie', 'timeline', 'scorecard', 'metrics', 'comparison'] },
@@ -356,8 +386,9 @@ const articleJsonSchema = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['title', 'publisher', 'url', 'date', 'note'],
+          required: ['id', 'title', 'publisher', 'url', 'date', 'note'],
           properties: {
+            id: { type: 'string' },
             title: { type: 'string' },
             publisher: { type: 'string' },
             url: { type: 'string' },
@@ -383,7 +414,7 @@ function normalizeGeneratedArticle(article, fallbackCategory) {
     summary: String(article.summary || '').slice(0, 700),
     category: String(category).slice(0, 80),
     body,
-    keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims : [],
+    keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims.slice(0, 3) : [],
     charts: Array.isArray(article.charts) ? article.charts : [],
     sources: Array.isArray(article.sources) ? article.sources : []
   };
@@ -398,8 +429,16 @@ function sanitizeArticleBody(body) {
       heading: String(section?.heading || '').replace(urlPattern, '').trim(),
       paragraphs: Array.isArray(section?.paragraphs)
         ? section.paragraphs
-          .map((paragraph) => String(paragraph || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim())
-          .filter(Boolean)
+          .map((paragraph) => {
+            if (typeof paragraph === 'string') {
+              return String(paragraph || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim();
+            }
+            return {
+              text: String(paragraph?.text || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim(),
+              chartIds: Array.isArray(paragraph?.chartIds) ? paragraph.chartIds.map(String).filter(Boolean) : []
+            };
+          })
+          .filter((paragraph) => typeof paragraph === 'string' ? Boolean(paragraph) : Boolean(paragraph.text))
         : []
     }))
     .filter((section) => section.heading || section.paragraphs.length);
@@ -448,8 +487,9 @@ async function performArticleGeneration(input, userId) {
         role: 'user',
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
-          bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array.',
-          chartRules: 'Return 2 to 4 visualizations. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
+          bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support.',
+          claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
+          chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           requiredShape: articleJsonShape,
           originalRequest: input,
           researchBrief: researchResponse.output_text,

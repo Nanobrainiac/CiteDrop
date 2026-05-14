@@ -3,7 +3,11 @@ import { BarChart3, FileCheck2, ShieldCheck } from 'lucide-react';
 function confidenceScore(claims) {
   if (!claims.length) return 0;
   const weights = { high: 100, medium: 72, low: 42 };
-  const total = claims.reduce((sum, claim) => sum + (weights[String(claim.confidence || '').toLowerCase()] || 60), 0);
+  const total = claims.reduce((sum, claim) => {
+    const explicitScore = Number(claim.confidenceScore);
+    if (Number.isFinite(explicitScore)) return sum + Math.max(0, Math.min(100, explicitScore));
+    return sum + (weights[String(claim.confidence || claim.confidenceLabel || '').toLowerCase()] || 60);
+  }, 0);
   return Math.round((total / claims.length) * 10) / 10;
 }
 

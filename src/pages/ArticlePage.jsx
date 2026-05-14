@@ -56,13 +56,26 @@ export default function ArticlePage() {
     { label: 'Charts', value: charts.length },
     { label: 'Sources', value: sources.length }
   ], [claims.length, charts.length, sources.length]);
+  const chartsById = useMemo(() => new Map(charts.map((chart, index) => [chart.id || chart.slug || `chart-${index + 1}`, chart])), [charts]);
+  const usedChartIds = useMemo(() => {
+    const ids = new Set();
+    sections.forEach((section) => {
+      (section.paragraphs || []).forEach((paragraph) => {
+        if (typeof paragraph === 'object' && Array.isArray(paragraph.chartIds)) {
+          paragraph.chartIds.forEach((id) => ids.add(id));
+        }
+      });
+    });
+    return ids;
+  }, [sections]);
+  const remainingCharts = useMemo(() => charts.filter((chart, index) => !usedChartIds.has(chart.id || chart.slug || `chart-${index + 1}`)), [charts, usedChartIds]);
   const sectionTabs = useMemo(() => [
     { label: 'Summary', href: '#summary' },
     { label: 'Claims', href: '#claims' },
-    { label: 'Charts', href: '#charts' },
     { label: 'Article', href: '#article-body' },
+    ...(remainingCharts.length ? [{ label: 'Charts', href: '#charts' }] : []),
     { label: 'Sources', href: '#sources' }
-  ], []);
+  ], [remainingCharts.length]);
 
   async function copyLink() {
     await navigator.clipboard.writeText(articleUrl(article.slug));
@@ -113,17 +126,6 @@ export default function ArticlePage() {
   if (loading) return <LoadingState label="Loading article" />;
   if (error || !article) return <div className="mx-auto max-w-3xl px-4 py-20 text-white/65">{error || 'Article not found.'}</div>;
 
-  const supportPanels = (
-    <>
-      <div className="glass-panel rounded-lg p-5">
-        <p className="text-sm uppercase text-white/45">Brief summary</p>
-        <p className="mt-4 text-base leading-7 text-white/72">{article.summary}</p>
-      </div>
-      <ClaimList claims={claims} />
-      <ChartRenderer charts={charts} fallbackData={fallbackChartData} />
-    </>
-  );
-
   return (
     <article>
       <header className="border-b border-white/10">
@@ -136,6 +138,10 @@ export default function ArticlePage() {
             </div>
             <h1 className="mt-6 max-w-4xl break-words text-4xl font-black leading-none sm:text-6xl">{article.title}</h1>
             {article.subtitle ? <p className="mt-5 max-w-3xl break-words text-lg leading-8 text-white/62 sm:text-xl">{article.subtitle}</p> : null}
+            <div id="summary" className="mt-6 max-w-3xl scroll-mt-20 rounded-lg border border-white/10 bg-white/[0.04] p-5">
+              <p className="text-sm uppercase text-white/45">Summary</p>
+              <p className="mt-3 text-base leading-7 text-white/72">{article.summary}</p>
+            </div>
             {article.status === 'published' ? (
               <div className="mt-8 flex flex-wrap gap-3">
                 <button onClick={share} className="inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
@@ -162,39 +168,51 @@ export default function ArticlePage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl space-y-5 overflow-x-hidden px-3 py-8 sm:px-6 lg:hidden">
-        <div id="summary" className="scroll-mt-20">
-          <div className="glass-panel rounded-lg p-5">
-            <p className="text-sm uppercase text-white/45">Brief summary</p>
-            <p className="mt-4 text-base leading-7 text-white/72">{article.summary}</p>
-          </div>
-        </div>
+      <section className="mx-auto max-w-7xl space-y-5 overflow-x-hidden px-3 py-8 sm:px-6 lg:px-8">
         <div id="claims" className="scroll-mt-20">
           <ClaimList claims={claims} />
         </div>
-        <div id="charts" className="scroll-mt-20">
-          <ChartRenderer charts={charts} fallbackData={fallbackChartData} />
-        </div>
       </section>
 
-      <div id="article-body" className="mx-auto grid max-w-7xl scroll-mt-20 gap-6 overflow-x-hidden px-3 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
+      <div id="article-body" className="mx-auto max-w-5xl scroll-mt-20 overflow-x-hidden px-3 py-10 sm:px-6 lg:px-8">
         <div className="min-w-0 space-y-8">
           {sections.map((section, index) => (
             <section key={`${section.heading}-${index}`} className="max-w-none">
               <h2 className="break-words text-2xl font-black sm:text-3xl">{section.heading}</h2>
-              {(section.paragraphs || []).map((paragraph, paragraphIndex) => (
-                <p key={paragraphIndex} className="mt-4 break-words text-base leading-8 text-white/70 sm:text-lg">{paragraph}</p>
-              ))}
+              {(section.paragraphs || []).map((paragraph, paragraphIndex) => {
+                const normalized = normalizeParagraph(paragraph);
+                const paragraphCharts = normalized.chartIds.map((id) => chartsById.get(id)).filter(Boolean);
+                return (
+                  <div key={paragraphIndex}>
+                    <p className="mt-4 break-words text-base leading-8 text-white/70 sm:text-lg">{normalized.text}</p>
+                    {paragraphCharts.length ? (
+                      <div className="mt-5">
+                        <ChartRenderer charts={paragraphCharts} fallbackData={fallbackChartData} />
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </section>
           ))}
+          {remainingCharts.length ? (
+            <div id="charts" className="scroll-mt-20">
+              <ChartRenderer charts={remainingCharts} fallbackData={fallbackChartData} />
+            </div>
+          ) : null}
           <div id="sources" className="scroll-mt-20">
             <SourceList sources={sources} />
           </div>
         </div>
-        <aside className="hidden min-w-0 space-y-6 lg:sticky lg:top-24 lg:block lg:self-start">
-          {supportPanels}
-        </aside>
       </div>
     </article>
   );
+}
+
+function normalizeParagraph(paragraph) {
+  if (typeof paragraph === 'string') return { text: paragraph, chartIds: [] };
+  return {
+    text: paragraph?.text || '',
+    chartIds: Array.isArray(paragraph?.chartIds) ? paragraph.chartIds : []
+  };
 }
