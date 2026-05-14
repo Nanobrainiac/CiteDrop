@@ -43,7 +43,7 @@ export default function PromptBuilder({ onGenerated }) {
     <form onSubmit={handleSubmit} className="glass-panel rounded-lg p-5">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
         <label className="block space-y-2">
-          <span className="text-sm font-bold text-white/70">Research question</span>
+          <span className="text-sm font-bold text-white/70">Copy & paste, or type your point of view about something here.</span>
           <textarea required minLength={12} rows={7} value={form.prompt} onChange={(event) => updateField('prompt', event.target.value)} className="w-full resize-y rounded-md border border-white/10 bg-black/25 px-4 py-3 outline-none focus:border-acid" placeholder="Example: Is college still worth it?" />
         </label>
         <label className="space-y-2">
