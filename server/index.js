@@ -94,6 +94,8 @@ Rules:
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
 - Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
 - Place chart IDs in the chartIds array immediately after paragraphs they help explain. Leave chartIds empty when no chart belongs after that paragraph.
+- Every generated chart must be referenced by at least one paragraph chartIds entry. If a chart is useful enough to include, write body text that explains it.
+- Do not create orphan charts that introduce a new topic after the article text. Either place the chart after relevant discussion or omit the chart.
 - Include 2 to 4 useful visualizations. Each visualization must answer a specific question, state a takeaway, identify units, note source support, and name limitations.
 - Use timeline for dated events, legal/history sequences, campaign promise chronology, or any data where the main value is sequence rather than numeric trend.
 - Timeline date fields must be human-readable and precision-honest. Use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026"; do not invent exact month/day values such as YYYY-01-01 when only a year or era is known.
@@ -258,6 +260,7 @@ function buildGenerationInput(input) {
       'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
       'Every key claim must identify source support or uncertainty.',
       'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
+      'Every visualization must correspond to article text. Do not return a visualization unless the article body includes a paragraph whose chartIds references that visualization id.',
       'Use line or area only for a continuous metric with 3 or more comparable time points.',
       'Use timeline for sequences of events, metrics for standalone facts or mixed units, comparison for side-by-side estimates or categories, and scorecard for qualitative evidence maps.',
       'Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates.',
@@ -407,17 +410,47 @@ function normalizeGeneratedArticle(article, fallbackCategory) {
   const rawSlug = article.slug || title;
   const body = Array.isArray(article.body) ? sanitizeArticleBody(article.body) : [];
   const category = article.category || fallbackCategory || 'Research';
+  const charts = Array.isArray(article.charts) ? article.charts : [];
   return {
     title,
     slug: slugify(rawSlug, { lower: true, strict: true }).slice(0, 140) || `article-${Date.now()}`,
     subtitle: String(article.subtitle || '').slice(0, 240),
     summary: String(article.summary || '').slice(0, 700),
     category: String(category).slice(0, 80),
-    body,
+    body: attachOrphanCharts(body, charts),
     keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims.slice(0, 3) : [],
-    charts: Array.isArray(article.charts) ? article.charts : [],
+    charts,
     sources: Array.isArray(article.sources) ? article.sources : []
   };
+}
+
+function attachOrphanCharts(body, charts) {
+  if (!charts.length) return body;
+  const referencedIds = new Set();
+  for (const section of body) {
+    for (const paragraph of section.paragraphs || []) {
+      if (typeof paragraph === 'object' && Array.isArray(paragraph.chartIds)) {
+        paragraph.chartIds.forEach((id) => referencedIds.add(id));
+      }
+    }
+  }
+
+  const orphanCharts = charts.filter((chart, index) => {
+    const id = chart.id || `chart-${index + 1}`;
+    return id && !referencedIds.has(id);
+  });
+  if (!orphanCharts.length) return body;
+
+  return [
+    ...body,
+    {
+      heading: 'Additional Evidence',
+      paragraphs: orphanCharts.map((chart) => ({
+        text: chart.takeaway || chart.note || `${chart.title} adds context to the report.`,
+        chartIds: [chart.id]
+      }))
+    }
+  ];
 }
 
 function sanitizeArticleBody(body) {
@@ -487,9 +520,9 @@ async function performArticleGeneration(input, userId) {
         role: 'user',
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
-          bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support.',
+          bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
           claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
-          chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
+          chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           requiredShape: articleJsonShape,
           originalRequest: input,
           researchBrief: researchResponse.output_text,
