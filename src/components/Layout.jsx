@@ -1,5 +1,5 @@
 import { Link, NavLink } from 'react-router-dom';
-import { PenLine, ShieldCheck, Sparkles } from 'lucide-react';
+import { PenLine, ShieldCheck } from 'lucide-react';
 import { UserButton } from '@clerk/clerk-react';
 import { useAuth } from '../state/AuthContext.jsx';
 import DonateButton from './DonateButton.jsx';
@@ -12,9 +12,7 @@ export default function Layout({ children }) {
       <header className="sticky top-0 z-40 border-b border-white/10 bg-ink/85 backdrop-blur-xl">
         <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:flex-nowrap sm:px-6 sm:py-4 lg:px-8">
           <Link to="/" className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-full bg-acid text-ink shadow-glow">
-              <Sparkles size={21} strokeWidth={2.6} />
-            </span>
+            <img src="/citedrop-logo.png" alt="CiteDrop" className="h-10 w-14 shrink-0 object-contain sm:w-16" />
             <span className="min-w-0">
               <span className="block text-base font-black leading-none tracking-normal sm:text-lg">CiteDrop</span>
               <span className="hidden text-xs uppercase text-white/45 sm:block">Turn Claims Into Evidence</span>
@@ -45,9 +43,7 @@ export default function Layout({ children }) {
         <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1.2fr_.8fr_.8fr]">
           <div>
             <Link to="/" className="inline-flex items-center gap-3 text-white">
-              <span className="grid h-10 w-10 place-items-center rounded-full bg-acid text-ink shadow-glow">
-                <Sparkles size={21} strokeWidth={2.6} />
-              </span>
+              <img src="/citedrop-logo.png" alt="CiteDrop" className="h-12 w-20 object-contain" />
               <span>
                 <span className="block text-lg font-black leading-none">CiteDrop</span>
                 <span className="text-xs uppercase text-white/45">Turn Claims Into Evidence</span>
