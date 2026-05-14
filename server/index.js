@@ -674,32 +674,46 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
   const includeDrafts = req.query.includeDrafts === 'true' && Boolean(user);
   const ownOnly = includeDrafts && (req.query.mine === 'true' || user?.role !== 'admin' || req.query.scope !== 'all');
 
-  const filters = [];
-  const values = [];
+  const visibilityFilters = [];
+  const visibilityValues = [];
   if (!includeDrafts) {
-    values.push('published');
-    filters.push(`status = $${values.length}`);
+    visibilityValues.push('published');
+    visibilityFilters.push(`status = $${visibilityValues.length}`);
   } else if (ownOnly) {
-    values.push(user.id);
-    filters.push(`created_by = $${values.length}`);
+    visibilityValues.push(user.id);
+    visibilityFilters.push(`created_by = $${visibilityValues.length}`);
+  }
+
+  const filters = [...visibilityFilters];
+  const values = [...visibilityValues];
+  const categoryFilters = [...visibilityFilters, `nullif(trim(category), '') is not null`];
+  const categoryWhere = categoryFilters.length ? `where ${categoryFilters.join(' and ')}` : '';
+
+  if (search) {
+    values.push(`%${search}%`);
+    filters.push(`(title ilike $${values.length} or summary ilike $${values.length} or category ilike $${values.length})`);
   }
   if (category) {
     values.push(category);
     filters.push(`category = $${values.length}`);
   }
-  if (search) {
-    values.push(`%${search}%`);
-    filters.push(`(title ilike $${values.length} or summary ilike $${values.length} or category ilike $${values.length})`);
-  }
   const where = filters.length ? `where ${filters.join(' and ')}` : '';
 
   try {
     const countResult = await query(`select count(*)::int as count from articles ${where}`, values);
+    const categoriesResult = await query(
+      `select distinct category from articles ${categoryWhere} order by category asc`,
+      visibilityValues
+    );
     const articlesResult = await query(
       `select * from articles ${where} order by created_at desc limit $${values.length + 1} offset $${values.length + 2}`,
       [...values, pageSize, offset]
     );
-    res.json({ articles: articlesResult.rows, count: countResult.rows[0]?.count || 0 });
+    res.json({
+      articles: articlesResult.rows,
+      count: countResult.rows[0]?.count || 0,
+      categories: categoriesResult.rows.map((row) => row.category)
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Unable to load articles.' });

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import EmptyState from '../components/EmptyState.jsx';
 import LoadingState from '../components/LoadingState.jsx';
 import MyArticleTable from '../components/MyArticleTable.jsx';
+import Pagination from '../components/Pagination.jsx';
 import PromptBuilder from '../components/PromptBuilder.jsx';
 import DonateButton from '../components/DonateButton.jsx';
 import SectionTabs from '../components/SectionTabs.jsx';
@@ -12,23 +13,27 @@ const dashboardTabs = [
   { label: 'Create', href: '#create' },
   { label: 'My articles', href: '#my-articles' }
 ];
+const pageSize = 10;
 
 export default function DashboardPage() {
   const [generated, setGenerated] = useState(null);
   const [articles, setArticles] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalArticles, setTotalArticles] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadMyArticles = useCallback(() => {
+  const loadMyArticles = useCallback((targetPage = page) => {
     setLoading(true);
-    getArticles({ includeDrafts: true, mine: true, pageSize: 50 })
+    getArticles({ includeDrafts: true, mine: true, page: targetPage, pageSize })
       .then((result) => {
         setArticles(result.articles);
+        setTotalArticles(result.count || 0);
         setError('');
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     loadMyArticles();
@@ -36,7 +41,8 @@ export default function DashboardPage() {
 
   function handleGenerated(article) {
     setGenerated(article);
-    loadMyArticles();
+    setPage(1);
+    loadMyArticles(1);
   }
 
   return (
@@ -67,7 +73,12 @@ export default function DashboardPage() {
           <p className="text-sm font-bold uppercase text-acid">Your articles</p>
           <h2 className="mt-2 text-3xl font-black">Generated articles</h2>
         </div>
-        {error ? <div className="glass-panel rounded-lg p-6 text-white/65">{error}</div> : loading ? <LoadingState label="Loading your articles" /> : articles.length ? <MyArticleTable articles={articles} onChange={loadMyArticles} /> : <EmptyState title="No drafts yet" message="Generate your first article above." />}
+        {error ? <div className="glass-panel rounded-lg p-6 text-white/65">{error}</div> : loading ? <LoadingState label="Loading your articles" /> : articles.length ? (
+          <>
+            <MyArticleTable articles={articles} onChange={loadMyArticles} />
+            <Pagination page={page} pageSize={pageSize} total={totalArticles} onPageChange={setPage} label="articles" />
+          </>
+        ) : <EmptyState title="No drafts yet" message="Generate your first article above." />}
       </div>
     </section>
   );

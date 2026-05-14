@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 import ArticleGrid from '../components/ArticleGrid.jsx';
@@ -36,6 +36,7 @@ export default function HomePage() {
   const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
   const [totalArticles, setTotalArticles] = useState(0);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -46,11 +47,13 @@ export default function HomePage() {
         .then((result) => {
           setArticles(result.articles);
           setTotalArticles(result.count || 0);
+          setCategories(result.categories || []);
           setError('');
         })
         .catch(() => {
           setArticles(demoArticles);
           setTotalArticles(demoArticles.length);
+          setCategories([...new Set(demoArticles.map((article) => article.category).filter(Boolean))]);
           setError('');
         })
         .finally(() => setLoading(false));
@@ -62,8 +65,6 @@ export default function HomePage() {
   useEffect(() => {
     setPage(1);
   }, [search, category]);
-
-  const categories = useMemo(() => [...new Set(articles.map((article) => article.category).filter(Boolean))], [articles]);
 
   return (
     <>
