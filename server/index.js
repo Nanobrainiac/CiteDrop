@@ -93,10 +93,12 @@ Rules:
 - Use timeline for dated events, legal/history sequences, campaign promise chronology, or any data where the main value is sequence rather than numeric trend.
 - Timeline date fields must be human-readable and precision-honest. Use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026"; do not invent exact month/day values such as YYYY-01-01 when only a year or era is known.
 - Use line or area only for one continuous metric measured across 3 or more comparable time points. Do not use line charts for one-off events, category rankings, or single-month snapshots.
-- Use bar for discrete comparisons, scorecard for qualitative evidence/claim support, and pie only when values are parts of the same whole.
+- Use metrics for standalone numbers or when datapoints use different units.
+- Use comparison for side-by-side estimates, claims, people, or categories where the reader should compare context rather than infer a trend.
+- Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only when values are parts of the same whole.
 - Never insert zero values to mean "data unavailable." Omit unavailable items or explain the limitation.
 - Prefer sourced quantitative data for comparison or outcome charts. If quantitative data is unavailable, create qualitative evidence maps such as claim support strength, source mix, timeline of sourced events, or argument coverage. Clearly label qualitative charts as qualitative or illustrative.
-- Visualizations must use simple JSON renderable as bar, line, area, pie, timeline, or scorecard. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
+- Visualizations must use simple JSON renderable as bar, line, area, pie, timeline, scorecard, metrics, or comparison. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
 - Never cite a URL that was not actually consulted.`;
 
 const articleJsonShape = {
@@ -115,7 +117,7 @@ const articleJsonShape = {
     {
       title: 'Chart title',
       question: 'Question this chart answers',
-      type: 'bar | line | area | pie | timeline | scorecard',
+      type: 'bar | line | area | pie | timeline | scorecard | metrics | comparison',
       takeaway: 'Main interpretation in one sentence',
       units: 'Percent, dollars, index score, count, qualitative score, etc.',
       sourceNote: 'Source basis for the chart',
@@ -233,7 +235,7 @@ function buildGenerationInput(input) {
       'Every key claim must identify source support or uncertainty.',
       'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
       'Use line or area only for a continuous metric with 3 or more comparable time points.',
-      'Use timeline for sequences of events and scorecard for qualitative evidence maps.',
+      'Use timeline for sequences of events, metrics for standalone facts or mixed units, comparison for side-by-side estimates or categories, and scorecard for qualitative evidence maps.',
       'Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates.',
       'Do not use zero as a placeholder for unavailable data.',
       'If no sourced numerical dataset is found, return qualitative evidence maps with labels and numeric scores, and clearly mark them as qualitative.'
@@ -313,7 +315,7 @@ const articleJsonSchema = {
           properties: {
             title: { type: 'string' },
             question: { type: 'string' },
-            type: { type: 'string', enum: ['bar', 'line', 'area', 'pie', 'timeline', 'scorecard'] },
+            type: { type: 'string', enum: ['bar', 'line', 'area', 'pie', 'timeline', 'scorecard', 'metrics', 'comparison'] },
             takeaway: { type: 'string' },
             units: { type: 'string' },
             sourceNote: { type: 'string' },
@@ -437,7 +439,7 @@ async function performArticleGeneration(input, userId) {
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
           bodyRules: 'Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array.',
-          chartRules: 'Return 2 to 4 visualizations. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
+          chartRules: 'Return 2 to 4 visualizations. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           requiredShape: articleJsonShape,
           originalRequest: input,
           researchBrief: researchResponse.output_text,

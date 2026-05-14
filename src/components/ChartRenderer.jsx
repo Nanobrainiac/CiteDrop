@@ -119,6 +119,55 @@ function ScorecardView({ data, unit }) {
   );
 }
 
+function MetricsView({ data, unit }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {data.map((item, index) => (
+        <div key={`${item.label}-${index}`} className="rounded-md border border-white/10 bg-black/25 p-4">
+          <p className="text-xs font-bold uppercase text-white/45">{item.group || item.source || 'Metric'}</p>
+          <p className="mt-3 break-words text-sm font-semibold leading-6 text-white">{item.label}</p>
+          <p className="mt-3 break-words text-4xl font-black leading-none text-acid">
+            {formatMetricValue(item.value)}{unit && unit !== 'none' && !String(item.label || '').toLowerCase().includes(String(unit).toLowerCase()) ? <span className="ml-2 text-base text-white/50">{unit}</span> : null}
+          </p>
+          {item.note ? <p className="mt-3 break-words text-sm leading-6 text-white/58">{item.note}</p> : null}
+          {item.date || item.source ? <p className="mt-3 text-xs text-white/40">{[item.date, item.source].filter(Boolean).join(' / ')}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ComparisonView({ data, unit }) {
+  return (
+    <div className="grid gap-3">
+      {data.map((item, index) => (
+        <div key={`${item.label}-${index}`} className="rounded-md border border-white/10 bg-black/25 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="break-words font-black text-white">{item.label}</p>
+              {item.group ? <p className="mt-1 text-xs uppercase text-white/45">{item.group}</p> : null}
+              {item.note ? <p className="mt-2 break-words text-sm leading-6 text-white/60">{item.note}</p> : null}
+            </div>
+            <span className="shrink-0 rounded-full bg-acid px-3 py-1 text-sm font-black text-ink">
+              {formatMetricValue(item.value)}{unit && unit !== 'none' ? ` ${unit}` : ''}
+            </span>
+          </div>
+          {item.source ? <p className="mt-3 text-xs text-white/42">Source: {item.source}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatMetricValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  if (Math.abs(numeric) >= 1000000000) return `${trimNumber(numeric / 1000000000)}B`;
+  if (Math.abs(numeric) >= 1000000) return `${trimNumber(numeric / 1000000)}M`;
+  if (Math.abs(numeric) >= 1000) return `${trimNumber(numeric / 1000)}K`;
+  return Number.isInteger(numeric) ? numeric.toString() : numeric.toString();
+}
+
 export default function ChartRenderer({ charts = [], fallbackData = [] }) {
   const normalizedCharts = charts.length ? charts : [{
     title: 'Evidence Coverage',
@@ -143,6 +192,8 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
         const xKey = data.some((item) => item.date) ? 'date' : 'label';
         const isTimeline = type === 'timeline';
         const isScorecard = type === 'scorecard';
+        const isMetrics = type === 'metrics';
+        const isComparison = type === 'comparison';
 
         return (
           <article key={`${chart.title}-${index}`} className="glass-panel min-w-0 overflow-hidden rounded-lg p-4 sm:p-5">
@@ -170,6 +221,10 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
               <TimelineView data={data} />
             ) : isScorecard ? (
               <ScorecardView data={data} unit={unit} />
+            ) : isMetrics ? (
+              <MetricsView data={data} unit={unit} />
+            ) : isComparison ? (
+              <ComparisonView data={data} unit={unit} />
             ) : (
               <div className="h-72 min-w-0 overflow-hidden rounded-md border border-white/10 bg-black/25 p-2 sm:p-3">
                 <ResponsiveContainer width="100%" height="100%">
@@ -208,7 +263,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                 </ResponsiveContainer>
               </div>
             )}
-            {data.length && !isTimeline && !isScorecard ? (
+            {data.length && !isTimeline && !isScorecard && !isMetrics && !isComparison ? (
               <div className="mt-4 grid gap-2">
                 {data.slice(0, 4).map((item, itemIndex) => (
                   <div key={`${item.label}-${itemIndex}`} className="rounded-md bg-white/[0.04] p-3 text-xs leading-5 text-white/55">
