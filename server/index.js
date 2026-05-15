@@ -308,16 +308,25 @@ function safeJson(value) {
   return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
-async function latestPublishedArticles(limit = 6) {
-  const { rows } = await query(
+async function homeSnapshotData(limit = 9) {
+  const [articlesResult, countResult, categoriesResult] = await Promise.all([
+    query(
     `select id, title, slug, subtitle, summary, category, status, created_at
      from articles
      where status = 'published'
      order by created_at desc
      limit $1`,
     [limit]
-  );
-  return rows;
+    ),
+    query(`select count(*)::int as count from articles where status = 'published'`),
+    query(`select distinct category from articles where status = 'published' and nullif(trim(category), '') is not null order by category asc`)
+  ]);
+
+  return {
+    articles: articlesResult.rows,
+    count: countResult.rows[0]?.count || 0,
+    categories: categoriesResult.rows.map((row) => row.category)
+  };
 }
 
 async function injectHomeMeta(html, req) {
@@ -329,14 +338,10 @@ async function injectHomeMeta(html, req) {
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
   `;
-  const articles = await latestPublishedArticles();
-  const dataScript = `<script>window.__CITEDROP_HOME__=${safeJson({
-    articles,
-    count: articles.length,
-    categories: [...new Set(articles.map((article) => article.category).filter(Boolean))]
-  })};</script>`;
+  const snapshot = await homeSnapshotData();
+  const dataScript = `<script>window.__CITEDROP_HOME__=${safeJson(snapshot)};</script>`;
   return stripMetaTags(html, ['og:url', 'og:site_name', 'og:image', 'twitter:image'])
-    .replace('<div id="root"></div>', `<div id="root">${renderHomeSnapshot(articles)}</div>`)
+    .replace('<div id="root"></div>', `<div id="root">${renderHomeSnapshot(snapshot.articles)}</div>`)
     .replace('</head>', `${meta}\n    ${dataScript}\n  </head>`);
 }
 

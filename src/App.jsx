@@ -5,8 +5,8 @@ import AuthGuard from './components/AuthGuard.jsx';
 import ClerkBoundary from './components/ClerkBoundary.jsx';
 import LoadingState from './components/LoadingState.jsx';
 import { AuthProvider } from './state/AuthContext.jsx';
+import HomePage from './pages/HomePage.jsx';
 
-const HomePage = lazy(() => import('./pages/HomePage.jsx'));
 const ArticlePage = lazy(() => import('./pages/ArticlePage.jsx'));
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));

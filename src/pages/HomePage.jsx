@@ -42,6 +42,11 @@ export default function HomePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (serverHomeData?.articles?.length && !search && !category && page === 1) {
+      setLoading(false);
+      return undefined;
+    }
+
     const timeout = setTimeout(() => {
       setLoading(true);
       getArticles({ search, category, page, pageSize })
