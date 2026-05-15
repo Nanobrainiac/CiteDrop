@@ -75,6 +75,10 @@ const systemPrompt = `You generate professional, evidence-minded research articl
 Return only valid JSON. Do not include markdown fences.
 Rules:
 - Base the article on multiple specific sources found through web search and/or user-provided source URLs.
+- Use the provided currentDate as the article's time context. Include an "As of [currentDate]" sentence in the summary or opening body section.
+- Prefer sources from the last 24 months when reliable sources are available.
+- For fast-moving topics such as politics, technology, war, markets, law, elections, public figures, companies, or current policy, prioritize sources from 2025-2026.
+- If older data is used, explain why it is still relevant, authoritative, or the latest available.
 - Use at least 4 source items when available. Do not use a publisher homepage as a source unless the homepage itself is the evidence.
 - Sources must be specific pages, reports, datasets, court records, government pages, speeches, press releases, articles, or studies.
 - Do not fabricate citations, statistics, institutions, authors, URLs, titles, or publication details.
@@ -151,6 +155,10 @@ const articleJsonShape = {
   ]
 };
 
+function currentDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function escapeHtml(value = '') {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -202,6 +210,7 @@ function injectArticleMeta(html, article, req) {
     <meta property="og:title" content="${escapeHtml(article.title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
     <meta property="og:url" content="${escapeHtml(articleUrl)}" />
+    <meta property="og:site_name" content="CiteDrop" />
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
     <meta property="og:image:type" content="image/png" />
@@ -218,6 +227,7 @@ function injectArticleMeta(html, article, req) {
     'og:title',
     'og:description',
     'og:url',
+    'og:site_name',
     'og:image',
     'og:image:secure_url',
     'og:image:type',
@@ -239,18 +249,21 @@ function injectHomeMeta(html, req) {
   const siteUrl = absoluteUrl(req, '/');
   const meta = `
     <meta property="og:url" content="${escapeHtml(siteUrl)}" />
+    <meta property="og:site_name" content="CiteDrop" />
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
   `;
-  return stripMetaTags(html, ['og:url', 'og:image', 'twitter:image'])
+  return stripMetaTags(html, ['og:url', 'og:site_name', 'og:image', 'twitter:image'])
     .replace('</head>', `${meta}\n  </head>`);
 }
 
 function buildGenerationInput(input, existingCategories = []) {
+  const currentDate = currentDateString();
   return JSON.stringify({
     task: 'Research the user question using web search and return a source-grounded research brief.',
     userQuestion: input.prompt,
     requestedTone: input.tone,
+    currentDate,
     existingCategories,
     inferenceRequirements: [
       'Infer the best category from the question. Prefer an existing category if it reasonably fits.',
@@ -260,6 +273,10 @@ function buildGenerationInput(input, existingCategories = []) {
     ],
     sourceQualityRequirements: [
       'Search for and use multiple specific source pages.',
+      `Use ${currentDate} as the current date for freshness decisions and "as of" framing.`,
+      'Prefer reliable sources from the last 24 months when available.',
+      'For fast-moving topics, prioritize sources from 2025-2026.',
+      'If older data is used, explain whether it is the latest available, authoritative historical context, or still relevant despite age.',
       'Do not cite generic homepages when a specific article/report/page is needed.',
       'Before writing, identify the core coverage requirements in the user prompt and ensure each is addressed explicitly.',
       'Extract up to 3 concrete claims from the user prompt and judge each as true, false, mixed, or unsure.',
@@ -512,6 +529,7 @@ async function listExistingCategories() {
 
 async function performArticleGeneration(input, userId) {
   const existingCategories = await listExistingCategories();
+  const currentDate = currentDateString();
   const researchResponse = await openai.responses.create({
     model: process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
     tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
@@ -540,6 +558,8 @@ async function performArticleGeneration(input, userId) {
         role: 'user',
         content: JSON.stringify({
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
+          currentDate,
+          freshnessRules: `Use ${currentDate} as the time context. Include an "As of ${currentDate}" framing sentence in the summary or opening body section. Prefer reliable sources from the last 24 months. For fast-moving topics, prioritize 2025-2026 sources. If older data is used, explain why it remains relevant, authoritative, or the latest available.`,
           bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
           claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
           chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
