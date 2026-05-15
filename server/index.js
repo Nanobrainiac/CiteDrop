@@ -110,10 +110,14 @@ Rules:
 - Use line or area only for one continuous metric measured across 3 or more comparable time points. Do not use line charts for one-off events, category rankings, or single-month snapshots.
 - Use metrics for standalone numbers or when datapoints use different units.
 - Use comparison for side-by-side estimates, claims, people, or categories where the reader should compare context rather than infer a trend.
+- Use delta for two-point before/after, first/last, or changed-from-to comparisons.
+- Use ranked_bar for ranked lists, long category labels, and ordered comparisons where horizontal scanning helps.
+- Use fact_table for legal criteria, definitions, categorical facts, and single facts that should not be forced into a chart.
+- Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage.
 - Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only when values are parts of the same whole.
 - Never insert zero values to mean "data unavailable." Omit unavailable items or explain the limitation.
 - Prefer sourced quantitative data for comparison or outcome charts. If quantitative data is unavailable, create qualitative evidence maps such as claim support strength, source mix, timeline of sourced events, or argument coverage. Clearly label qualitative charts as qualitative or illustrative.
-- Visualizations must use simple JSON renderable as bar, line, area, pie, timeline, scorecard, metrics, or comparison. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
+- Visualizations must use simple JSON renderable as bar, line, area, pie, timeline, scorecard, metrics, comparison, ranked_bar, delta, evidence_matrix, or fact_table. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
 - Never cite a URL that was not actually consulted.`;
 
 const articleJsonShape = {
@@ -141,7 +145,7 @@ const articleJsonShape = {
       id: 'stable-chart-id',
       title: 'Chart title',
       question: 'Question this chart answers',
-      type: 'bar | line | area | pie | timeline | scorecard | metrics | comparison',
+      type: 'bar | line | area | pie | timeline | scorecard | metrics | comparison | ranked_bar | delta | evidence_matrix | fact_table',
       takeaway: 'Main interpretation in one sentence',
       units: 'Percent, dollars, index score, count, qualitative score, etc.',
       sourceNote: 'Source basis for the chart',
@@ -287,6 +291,10 @@ function buildGenerationInput(input, existingCategories = []) {
       'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
       'Every visualization must correspond to article text. Do not return a visualization unless the article body includes a paragraph whose chartIds references that visualization id.',
       'Use line or area only for a continuous metric with 3 or more comparable time points.',
+      'Use delta instead of line or area for two-point before/after, first/last, or changed-from-to comparisons.',
+      'Use ranked_bar for ranked lists, long category labels, and ordered comparisons.',
+      'Use fact_table for legal criteria, definitions, categorical facts, and single facts that should not be forced into a chart.',
+      'Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage.',
       'Use timeline for sequences of events, metrics for standalone facts or mixed units, comparison for side-by-side estimates or categories, and scorecard for qualitative evidence maps.',
       'Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates.',
       'Do not use zero as a placeholder for unavailable data.',
@@ -383,7 +391,7 @@ const articleJsonSchema = {
             id: { type: 'string' },
             title: { type: 'string' },
             question: { type: 'string' },
-            type: { type: 'string', enum: ['bar', 'line', 'area', 'pie', 'timeline', 'scorecard', 'metrics', 'comparison'] },
+            type: { type: 'string', enum: ['bar', 'line', 'area', 'pie', 'timeline', 'scorecard', 'metrics', 'comparison', 'ranked_bar', 'delta', 'evidence_matrix', 'fact_table'] },
             takeaway: { type: 'string' },
             units: { type: 'string' },
             sourceNote: { type: 'string' },
@@ -562,7 +570,7 @@ async function performArticleGeneration(input, userId) {
           freshnessRules: `Use ${currentDate} as the time context. Include an "As of ${currentDate}" framing sentence in the summary or opening body section. Prefer reliable sources from the last 24 months. For fast-moving topics, prioritize 2025-2026 sources. If older data is used, explain why it remains relevant, authoritative, or the latest available.`,
           bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
           claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
-          chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
+          chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use delta for two-point before/after or first/last changes. Use ranked_bar for ranked lists, long category labels, and ordered comparisons. Use fact_table for legal criteria, definitions, categorical facts, or single facts. Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           categoryRules: 'Choose the best category from existingCategories whenever one reasonably fits. Reuse exact spelling and capitalization. Create a new category only if the existing list has no good fit.',
           requiredShape: articleJsonShape,
           originalRequest: input,
