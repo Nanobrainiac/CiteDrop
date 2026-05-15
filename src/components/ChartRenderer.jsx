@@ -31,7 +31,7 @@ function ChartTooltip({ active, payload, label, unit }) {
       <p className="font-black text-white">{label}</p>
       {payload.map((entry) => (
         <p key={entry.dataKey} className="mt-1 text-acid">
-          {entry.name || entry.dataKey}: {entry.value}{unit && unit !== 'none' ? ` ${unit}` : ''}
+          {entry.name || entry.dataKey}: {formatValueWithUnit(entry.value, unit)}
         </p>
       ))}
       {item.group ? <p className="mt-1 text-white/55">Group: {item.group}</p> : null}
@@ -106,7 +106,7 @@ function ScorecardView({ data, unit }) {
                 {item.note ? <p className="mt-1 break-words text-sm leading-6 text-white/58">{item.note}</p> : null}
               </div>
               <span className="shrink-0 rounded-full bg-acid px-3 py-1 text-sm font-black text-ink">
-                {value}{unit && unit !== 'none' ? ` ${unit}` : ''}
+                {formatValueWithUnit(value, unit)}
               </span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
@@ -128,7 +128,7 @@ function MetricsView({ data, unit }) {
           <p className="text-xs font-bold uppercase text-white/45">{item.group || item.source || 'Metric'}</p>
           <p className="mt-3 break-words text-sm font-semibold leading-6 text-white">{item.label}</p>
           <p className="mt-3 break-words text-4xl font-black leading-none text-acid">
-            {formatMetricValue(item.value)}{unit && unit !== 'none' && !String(item.label || '').toLowerCase().includes(String(unit).toLowerCase()) ? <span className="ml-2 text-base text-white/50">{unit}</span> : null}
+            {formatValueWithUnit(item.value, unit, { compact: true })}
           </p>
           {item.note ? <p className="mt-3 break-words text-sm leading-6 text-white/58">{item.note}</p> : null}
           {item.date || item.source ? <p className="mt-3 text-xs text-white/40">{[item.date, item.source].filter(Boolean).join(' / ')}</p> : null}
@@ -150,7 +150,7 @@ function ComparisonView({ data, unit }) {
               {item.note ? <p className="mt-2 break-words text-sm leading-6 text-white/60">{item.note}</p> : null}
             </div>
             <span className="shrink-0 rounded-full bg-acid px-3 py-1 text-sm font-black text-ink">
-              {formatMetricValue(item.value)}{unit && unit !== 'none' ? ` ${unit}` : ''}
+              {formatValueWithUnit(item.value, unit, { compact: true })}
             </span>
           </div>
           {item.source ? <p className="mt-3 text-xs text-white/42">Source: {item.source}</p> : null}
@@ -160,13 +160,55 @@ function ComparisonView({ data, unit }) {
   );
 }
 
-function formatMetricValue(value) {
+function formatValueWithUnit(value, unit = '', options = {}) {
+  const unitLabel = String(unit || '').trim();
+  const normalizedUnit = unitLabel.toLowerCase();
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return value;
-  if (Math.abs(numeric) >= 1000000000) return `${trimNumber(numeric / 1000000000)}B`;
-  if (Math.abs(numeric) >= 1000000) return `${trimNumber(numeric / 1000000)}M`;
-  if (Math.abs(numeric) >= 1000) return `${trimNumber(numeric / 1000)}K`;
-  return Number.isInteger(numeric) ? numeric.toString() : numeric.toString();
+  if (isDollarUnit(normalizedUnit)) return formatCurrency(numeric, unitLabel, options);
+  if (isPercentUnit(normalizedUnit)) return `${formatMetricValue(numeric, options)}%`;
+  if (!unitLabel || normalizedUnit === 'none') return formatMetricValue(numeric, options);
+  return `${formatMetricValue(numeric, options)} ${unitLabel}`;
+}
+
+function formatMetricValue(value, options = {}) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  if (options.compact) {
+    if (Math.abs(numeric) >= 1000000000) return `${trimNumber(numeric / 1000000000)}B`;
+    if (Math.abs(numeric) >= 1000000) return `${trimNumber(numeric / 1000000)}M`;
+    if (Math.abs(numeric) >= 1000) return `${trimNumber(numeric / 1000)}K`;
+  }
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: Number.isInteger(numeric) ? 0 : 2
+  }).format(numeric);
+}
+
+function formatCurrency(value, unit, options = {}) {
+  const normalizedUnit = unit.toLowerCase();
+  const multiplier = normalizedUnit.includes('billion') ? 1000000000 : normalizedUnit.includes('million') ? 1000000 : 1;
+  const amount = value * multiplier;
+  if (options.compact || Math.abs(amount) >= 1000000) {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      notation: 'compact',
+      maximumFractionDigits: 1
+    }).format(amount);
+  }
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: Number.isInteger(amount) ? 0 : 2
+  }).format(amount);
+}
+
+function isDollarUnit(unit) {
+  return /\b(dollars?|usd|u\.s\. dollars?)\b/.test(unit);
+}
+
+function isPercentUnit(unit) {
+  return /\b(percent|percentage|%)\b/.test(unit);
 }
 
 export default function ChartRenderer({ charts = [], fallbackData = [] }) {
@@ -241,7 +283,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                     <LineChart data={data}>
                       <CartesianGrid stroke="rgba(255,255,255,0.08)" />
                       <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
-                      <YAxis stroke="rgba(255,255,255,0.45)" />
+                      <YAxis tickFormatter={(value) => formatValueWithUnit(value, unit, { compact: true })} stroke="rgba(255,255,255,0.45)" />
                       <Tooltip content={<ChartTooltip unit={unit} />} />
                       <Line type="monotone" dataKey={valueKey} stroke="#e6ff3f" strokeWidth={3} dot={false} />
                     </LineChart>
@@ -249,7 +291,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                     <AreaChart data={data}>
                       <CartesianGrid stroke="rgba(255,255,255,0.08)" />
                       <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
-                      <YAxis stroke="rgba(255,255,255,0.45)" />
+                      <YAxis tickFormatter={(value) => formatValueWithUnit(value, unit, { compact: true })} stroke="rgba(255,255,255,0.45)" />
                       <Tooltip content={<ChartTooltip unit={unit} />} />
                       <Area type="monotone" dataKey={valueKey} stroke="#e6ff3f" fill="#657400" fillOpacity={0.55} />
                     </AreaChart>
@@ -264,7 +306,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                     <BarChart data={data}>
                       <CartesianGrid stroke="rgba(255,255,255,0.08)" />
                       <XAxis dataKey={xKey} stroke="rgba(255,255,255,0.45)" />
-                      <YAxis stroke="rgba(255,255,255,0.45)" />
+                      <YAxis tickFormatter={(value) => formatValueWithUnit(value, unit, { compact: true })} stroke="rgba(255,255,255,0.45)" />
                       <Tooltip content={<ChartTooltip unit={unit} />} />
                       <Bar dataKey={valueKey} fill="#e6ff3f" radius={[6, 6, 0, 0]} />
                     </BarChart>
@@ -277,7 +319,7 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                 {data.slice(0, 4).map((item, itemIndex) => (
                   <div key={`${item.label}-${itemIndex}`} className="rounded-md bg-white/[0.04] p-3 text-xs leading-5 text-white/55">
                     <span className="font-bold text-white/80">{item.label}</span>
-                    <span> / {item[valueKey]}{unit && unit !== 'none' ? ` ${unit}` : ''}</span>
+                    <span> / {formatValueWithUnit(item[valueKey], unit)}</span>
                     {item.note ? <span> - {item.note}</span> : null}
                   </div>
                 ))}
