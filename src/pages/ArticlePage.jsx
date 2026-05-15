@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowRight, Copy, Send, Share2 } from 'lucide-react';
-import ChartRenderer from '../components/ChartRenderer.jsx';
 import ClaimList from '../components/ClaimList.jsx';
 import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
 import LoadingState from '../components/LoadingState.jsx';
@@ -12,6 +11,8 @@ import { getArticle, updateArticle } from '../lib/api.js';
 import { trackEvent } from '../lib/analytics.js';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
+
+const ChartRenderer = lazy(() => import('../components/ChartRenderer.jsx'));
 
 export default function ArticlePage() {
   const { slug } = useParams();
@@ -192,7 +193,9 @@ export default function ArticlePage() {
                     <p className="mt-4 break-words text-base leading-8 text-white/70 sm:text-lg">{normalized.text}</p>
                     {paragraphCharts.length ? (
                       <div className="mt-5">
-                        <ChartRenderer charts={paragraphCharts} fallbackData={fallbackChartData} />
+                        <Suspense fallback={<LoadingState label="Loading chart" />}>
+                          <ChartRenderer charts={paragraphCharts} fallbackData={fallbackChartData} />
+                        </Suspense>
                       </div>
                     ) : null}
                   </div>
@@ -202,7 +205,9 @@ export default function ArticlePage() {
           ))}
           {remainingCharts.length ? (
             <div id="charts" className="scroll-mt-20">
-              <ChartRenderer charts={remainingCharts} fallbackData={fallbackChartData} />
+              <Suspense fallback={<LoadingState label="Loading charts" />}>
+                <ChartRenderer charts={remainingCharts} fallbackData={fallbackChartData} />
+              </Suspense>
             </div>
           ) : null}
           <div id="sources" className="scroll-mt-20">

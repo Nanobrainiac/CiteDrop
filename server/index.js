@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import fs from 'node:fs';
@@ -31,6 +32,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 app.use(cors({ origin: isProduction ? false : true }));
+app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(isProduction ? 'combined' : 'dev'));
 if (process.env.CLERK_SECRET_KEY && clerkPublishableKey) {
@@ -963,7 +965,15 @@ app.delete('/api/articles/:id', requireDatabase, requireUser, async (req, res) =
 
 if (isProduction) {
   const distPath = path.join(__dirname, '..', 'dist');
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, {
+    maxAge: '1y',
+    immutable: true,
+    setHeaders(res, assetPath) {
+      if (assetPath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    }
+  }));
   app.get('/', async (req, res) => {
     try {
       const html = await fs.promises.readFile(path.join(distPath, 'index.html'), 'utf8');
