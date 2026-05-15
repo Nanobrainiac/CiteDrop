@@ -20,14 +20,17 @@
     <meta name="twitter:image" content="/og-home.png" />
     <meta name="facebook-domain-verification" content="8ijste9e12rth538v5hu74xq5ay1uf" />
     <title>CiteDrop | Turn Claims Into Evidence</title>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-3BEQ6WDW5M"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       window.gtag = window.gtag || function gtag(){window.dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'G-3BEQ6WDW5M');
+      window.gtag('js', new Date());
+      (window.requestIdleCallback || window.setTimeout)(function(){
+        var script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=G-3BEQ6WDW5M';
+        document.head.appendChild(script);
+        window.gtag('config', 'G-3BEQ6WDW5M');
+      }, 1500);
     </script>
   </head>
   <body>

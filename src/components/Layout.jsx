@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { PenLine, ShieldCheck } from 'lucide-react';
-import { UserButton } from '@clerk/clerk-react';
 import { useAuth } from '../state/AuthContext.jsx';
 import DonateButton from './DonateButton.jsx';
+
+const ClerkUserButton = lazy(() => import('./ClerkUserButton.jsx'));
 
 export default function Layout({ children }) {
   const { user, configured } = useAuth();
@@ -30,7 +32,11 @@ export default function Layout({ children }) {
                     <ShieldCheck className="mr-1 h-4 w-4 sm:mr-2" /> Admin
                   </NavLink>
                 ) : null}
-                {configured ? <UserButton afterSignOutUrl="/" /> : null}
+                {configured ? (
+                  <Suspense fallback={null}>
+                    <ClerkUserButton />
+                  </Suspense>
+                ) : null}
               </>
             ) : (
               <NavLink className="rounded-full bg-acid px-4 py-2 text-sm font-bold text-ink hover:bg-white" to="/login">Log in</NavLink>

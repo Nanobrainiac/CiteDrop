@@ -29,15 +29,16 @@ const featuredEvidence = {
 };
 
 const pageSize = 9;
+const serverHomeData = typeof window !== 'undefined' ? window.__CITEDROP_HOME__ : null;
 
 export default function HomePage() {
-  const [articles, setArticles] = useState([]);
+  const [articles, setArticles] = useState(serverHomeData?.articles || []);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
-  const [totalArticles, setTotalArticles] = useState(0);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [totalArticles, setTotalArticles] = useState(serverHomeData?.count || 0);
+  const [categories, setCategories] = useState(serverHomeData?.categories || []);
+  const [loading, setLoading] = useState(!serverHomeData?.articles?.length);
   const [error, setError] = useState('');
 
   useEffect(() => {

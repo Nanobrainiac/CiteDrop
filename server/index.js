@@ -250,7 +250,77 @@ function injectArticleMeta(html, article, req) {
     .replace('</head>', `${meta}\n  </head>`);
 }
 
-function injectHomeMeta(html, req) {
+function renderHomeSnapshot(articles = []) {
+  const cards = articles.map((article) => `
+      <a href="/articles/${escapeHtml(article.slug)}" class="group glass-panel flex min-h-72 flex-col rounded-lg p-5 transition hover:-translate-y-1 hover:border-acid/50">
+        <div class="flex items-center justify-between gap-3">
+          <span class="rounded-full bg-white/10 px-3 py-1 text-xs uppercase text-white/60">${escapeHtml(article.category || 'Research')}</span>
+          <span class="rounded-full bg-acid px-3 py-1 text-xs font-bold uppercase text-ink">${escapeHtml(article.status || 'published')}</span>
+        </div>
+        <div class="chart-grid mt-5 rounded-md border border-white/10 bg-black/25 p-4">
+          <p class="text-xs uppercase text-acid/80">${escapeHtml(new Date(article.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }))}</p>
+          <h3 class="mt-3 line-clamp-3 text-2xl font-black leading-tight">${escapeHtml(article.title)}</h3>
+        </div>
+        <p class="mt-5 line-clamp-3 flex-1 text-sm leading-6 text-white/62">${escapeHtml(article.summary || article.subtitle || '')}</p>
+        <span class="mt-5 inline-flex items-center gap-2 text-sm font-bold text-acid">Open brief</span>
+      </a>
+  `).join('');
+
+  return `
+    <div class="min-h-screen">
+      <header class="sticky top-0 z-40 border-b border-white/10 bg-ink/85 backdrop-blur-xl">
+        <nav class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:flex-nowrap sm:px-6 sm:py-4 lg:px-8">
+          <a href="/" class="flex min-w-0 items-center gap-2 sm:gap-3">
+            <img src="/citedrop-logo.png" alt="CiteDrop" class="h-10 w-14 shrink-0 object-contain sm:w-16" />
+            <span class="min-w-0"><span class="block text-base font-black leading-none tracking-normal sm:text-lg">CiteDrop</span><span class="hidden text-xs uppercase text-white/45 sm:block">Turn Claims Into Evidence</span></span>
+          </a>
+          <div class="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto sm:flex-none sm:gap-2 sm:overflow-visible">
+            <a class="shrink-0 rounded-full px-2.5 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white sm:px-3" href="/#latest">Browse</a>
+            <a class="rounded-full bg-acid px-4 py-2 text-sm font-bold text-ink hover:bg-white" href="/login">Log in</a>
+          </div>
+        </nav>
+      </header>
+      <main>
+        <section class="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1.1fr_.9fr] lg:px-8 lg:py-18">
+          <div class="flex flex-col justify-center">
+            <div class="mb-5 inline-flex w-fit items-center gap-2 rounded-full border border-acid/30 bg-acid/10 px-4 py-2 text-sm font-bold text-acid">Sourced AI research pages</div>
+            <h1 class="max-w-4xl text-5xl font-black leading-[0.95] sm:text-6xl lg:text-7xl">Generate research-backed responses to any claim, in seconds, for free</h1>
+            <p class="mt-6 max-w-2xl text-lg leading-8 text-white/62">CiteDrop turns opinions into polished shareable research articles with chart visualizations, visible sources, and a clear separation between claims and opinion.</p>
+            <div class="mt-8 flex flex-col gap-3 sm:flex-row">
+              <a href="/dashboard" class="inline-flex items-center justify-center gap-2 rounded-full bg-acid px-6 py-3 font-black text-ink hover:bg-white">Generate article</a>
+              <a href="#latest" class="inline-flex items-center justify-center rounded-full border border-white/15 px-6 py-3 font-bold text-white/75 hover:bg-white/10">Browse latest</a>
+            </div>
+          </div>
+        </section>
+        <section id="latest" class="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div class="mb-6">
+            <p class="text-sm font-bold uppercase text-acid">Latest generated articles</p>
+            <h2 class="mt-2 text-3xl font-black">Browse the public library</h2>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">${cards}</div>
+        </section>
+      </main>
+    </div>
+  `;
+}
+
+function safeJson(value) {
+  return JSON.stringify(value).replaceAll('<', '\\u003c');
+}
+
+async function latestPublishedArticles(limit = 6) {
+  const { rows } = await query(
+    `select id, title, slug, subtitle, summary, category, status, created_at
+     from articles
+     where status = 'published'
+     order by created_at desc
+     limit $1`,
+    [limit]
+  );
+  return rows;
+}
+
+async function injectHomeMeta(html, req) {
   const imageUrl = absoluteUrl(req, '/og-home.png');
   const siteUrl = absoluteUrl(req, '/');
   const meta = `
@@ -259,8 +329,15 @@ function injectHomeMeta(html, req) {
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
   `;
+  const articles = await latestPublishedArticles();
+  const dataScript = `<script>window.__CITEDROP_HOME__=${safeJson({
+    articles,
+    count: articles.length,
+    categories: [...new Set(articles.map((article) => article.category).filter(Boolean))]
+  })};</script>`;
   return stripMetaTags(html, ['og:url', 'og:site_name', 'og:image', 'twitter:image'])
-    .replace('</head>', `${meta}\n  </head>`);
+    .replace('<div id="root"></div>', `<div id="root">${renderHomeSnapshot(articles)}</div>`)
+    .replace('</head>', `${meta}\n    ${dataScript}\n  </head>`);
 }
 
 function buildGenerationInput(input, existingCategories = []) {
@@ -977,7 +1054,7 @@ if (isProduction) {
   app.get('/', async (req, res) => {
     try {
       const html = await fs.promises.readFile(path.join(distPath, 'index.html'), 'utf8');
-      res.type('html').send(injectHomeMeta(html, req));
+      res.type('html').send(await injectHomeMeta(html, req));
     } catch (error) {
       console.error(error);
       res.sendFile(path.join(distPath, 'index.html'));
