@@ -804,6 +804,11 @@ if (!isProduction) {
   });
 }
 
+app.get('/api/auth/session', requireDatabase, async (req, res) => {
+  const user = await getUserFromRequest(req);
+  res.json({ signedIn: Boolean(user), user });
+});
+
 app.get('/api/auth/me', requireDatabase, requireUser, currentUser);
 
 app.patch('/api/roles/:clerkUserId', requireDatabase, requireUser, requireAdmin, async (req, res) => {

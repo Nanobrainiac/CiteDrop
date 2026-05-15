@@ -40,6 +40,10 @@ export function getCurrentUser() {
   return request('/api/auth/me');
 }
 
+export function getSessionStatus() {
+  return request('/api/auth/session', { headers: {} });
+}
+
 export function getArticles(params = {}) {
   const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== '' && value != null));
   return request(`/api/articles?${query.toString()}`, { headers: {} });

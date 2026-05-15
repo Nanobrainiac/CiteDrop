@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import AuthGuard from './components/AuthGuard.jsx';
 import ClerkBoundary from './components/ClerkBoundary.jsx';
 import LoadingState from './components/LoadingState.jsx';
+import { getSessionStatus } from './lib/api.js';
 import { AuthProvider } from './state/AuthContext.jsx';
 import HomePage from './pages/HomePage.jsx';
 
@@ -47,6 +48,34 @@ export default function App() {
 }
 
 function PublicFrame({ children }) {
+  const [shouldLoadClerk, setShouldLoadClerk] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 1200));
+    const cancel = window.cancelIdleCallback || window.clearTimeout;
+    const handle = schedule(() => {
+      getSessionStatus()
+        .then((result) => {
+          if (!cancelled && result.signedIn) setShouldLoadClerk(true);
+        })
+        .catch(() => {});
+    });
+
+    return () => {
+      cancelled = true;
+      cancel(handle);
+    };
+  }, []);
+
+  if (shouldLoadClerk) {
+    return (
+      <ClerkBoundary>
+        <Layout>{children}</Layout>
+      </ClerkBoundary>
+    );
+  }
+
   return (
     <AuthProvider configured>
       <Layout>{children}</Layout>
