@@ -405,14 +405,6 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
               {chart.takeaway ? (
                 <p className="rounded-md border border-acid/20 bg-acid/10 p-3 text-sm font-semibold leading-6 text-white">{chart.takeaway}</p>
               ) : null}
-              <div className="grid gap-2 text-xs text-white/48 sm:grid-cols-2">
-                {unit ? <p><span className="font-bold uppercase text-white/65">Units:</span> {unit}</p> : null}
-                {chart.sourceNote ? <p><span className="font-bold uppercase text-white/65">Source:</span> {chart.sourceNote}</p> : null}
-                {chart.limitation ? <p className="sm:col-span-2"><span className="font-bold uppercase text-white/65">Limit:</span> {chart.limitation}</p> : null}
-              </div>
-              {chart.note ? (
-                <p className="text-sm leading-6 text-white/50">{chart.note}</p>
-              ) : null}
             </div>
             {isTimeline ? (
               <TimelineView data={data} />
@@ -477,6 +469,16 @@ export default function ChartRenderer({ charts = [], fallbackData = [] }) {
                     {item.note ? <span> - {item.note}</span> : null}
                   </div>
                 ))}
+              </div>
+            ) : null}
+            {(unit || chart.sourceNote || chart.limitation || chart.note) ? (
+              <div className="mt-4 border-t border-white/10 pt-3 text-xs leading-5 text-white/38">
+                <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                  {unit ? <p><span className="font-bold uppercase text-white/50">Units:</span> {unit}</p> : null}
+                  {chart.sourceNote ? <p><span className="font-bold uppercase text-white/50">Source:</span> {chart.sourceNote}</p> : null}
+                  {chart.limitation ? <p className="sm:col-span-2"><span className="font-bold uppercase text-white/50">Limit:</span> {chart.limitation}</p> : null}
+                </div>
+                {chart.note ? <p className="mt-2 text-white/34">{chart.note}</p> : null}
               </div>
             ) : null}
           </article>
