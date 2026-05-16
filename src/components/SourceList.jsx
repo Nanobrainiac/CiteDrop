@@ -10,8 +10,8 @@ export default function SourceList({ sources = [] }) {
         {sources.map((source, index) => (
           <div key={`${source.title}-${index}`} className="min-w-0 rounded-md border border-white/10 bg-black/20 p-4">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="break-words font-bold">{source.title || 'Source needed'}</h3>
-              <span className="break-words text-sm text-white/45">{source.publisher}</span>
+              <h3 className="break-words font-bold">{displaySourceTitle(source)}</h3>
+              <span className="break-words text-sm text-white/45">{source.publisher || sourceDomain(source.url)}</span>
             </div>
             <p className="mt-2 break-words text-sm leading-6 text-white/58">{source.note}</p>
             {source.url ? (
@@ -34,4 +34,18 @@ export default function SourceList({ sources = [] }) {
       </div>
     </section>
   );
+}
+
+function displaySourceTitle(source) {
+  const title = String(source.title || '').trim();
+  if (!title || /^https?:\/\//i.test(title)) return source.publisher || sourceDomain(source.url) || 'Source';
+  return title;
+}
+
+function sourceDomain(url = '') {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
 }

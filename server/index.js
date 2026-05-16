@@ -391,22 +391,84 @@ function buildGenerationInput(input, existingCategories = []) {
 function normalizeSources(articleSources = [], responseSources = []) {
   const byUrl = new Map();
   for (const source of articleSources) {
-    if (!source?.url && !source?.title) continue;
-    byUrl.set(source.url || source.title, source);
+    const cleaned = cleanSource(source);
+    if (!cleaned.url && !cleaned.title) continue;
+    byUrl.set(cleaned.url || cleaned.title, cleaned);
   }
   for (const source of responseSources) {
-    if (!source?.url) continue;
-    if (!byUrl.has(source.url)) {
-      byUrl.set(source.url, {
-        title: source.title || source.url,
-        publisher: source.source || '',
-        url: source.url,
+    const cleaned = cleanSource({
+      title: source.title,
+      publisher: source.source || '',
+      url: source.url,
+      date: source.published_at || '',
+      note: 'Consulted during web search.'
+    });
+    if (!cleaned.url) continue;
+    if (!byUrl.has(cleaned.url)) {
+      byUrl.set(cleaned.url, {
+        ...cleaned,
         date: source.published_at || '',
-        note: 'Consulted during web search.'
+        note: cleaned.note || 'Consulted during web search.'
       });
     }
   }
   return [...byUrl.values()];
+}
+
+function cleanSource(source = {}) {
+  const url = canonicalSourceUrl(source.url || '');
+  const domain = sourceDomain(url);
+  const title = cleanSourceTitle(source.title, domain);
+  const publisher = String(source.publisher || domain || '').trim();
+  return {
+    ...source,
+    title,
+    publisher,
+    url,
+    note: String(source.note || '').trim()
+  };
+}
+
+function canonicalSourceUrl(rawUrl = '') {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'msclkid'].forEach((param) => {
+      url.searchParams.delete(param);
+    });
+    url.hash = '';
+    const trailingSlash = url.pathname !== '/' && url.pathname.endsWith('/');
+    if (trailingSlash) url.pathname = url.pathname.slice(0, -1);
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function sourceDomain(url = '') {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function cleanSourceTitle(title = '', domain = '') {
+  const value = String(title || '').trim();
+  if (!value || /^https?:\/\//i.test(value)) return domain || 'Source';
+  return value;
+}
+
+function normalizeCategory(category = '', fallbackCategory = 'Research') {
+  const cleaned = String(category || fallbackCategory || 'Research').trim();
+  const lower = cleaned.toLowerCase();
+  const categoryMap = new Map([
+    ['science and relikgion', 'Science and Religion'],
+    ['science & relikgion', 'Science and Religion'],
+    ['science and religion', 'Science and Religion']
+  ]);
+  return (categoryMap.get(lower) || cleaned || 'Research').slice(0, 80);
 }
 
 const articleJsonSchema = {
@@ -526,18 +588,18 @@ function normalizeGeneratedArticle(article, fallbackCategory) {
   const title = String(article.title || 'Untitled research brief').slice(0, 180);
   const rawSlug = article.slug || title;
   const body = Array.isArray(article.body) ? sanitizeArticleBody(article.body) : [];
-  const category = article.category || fallbackCategory || 'Research';
+  const category = normalizeCategory(article.category, fallbackCategory);
   const charts = Array.isArray(article.charts) ? article.charts : [];
   return {
     title,
     slug: slugify(rawSlug, { lower: true, strict: true }).slice(0, 140) || `article-${Date.now()}`,
     subtitle: String(article.subtitle || '').slice(0, 240),
     summary: String(article.summary || '').slice(0, 700),
-    category: String(category).slice(0, 80),
+    category,
     body: attachOrphanCharts(body, charts),
     keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims.slice(0, 3) : [],
     charts,
-    sources: Array.isArray(article.sources) ? article.sources : []
+    sources: normalizeSources(Array.isArray(article.sources) ? article.sources : [])
   };
 }
 
