@@ -25,6 +25,18 @@ const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VIT
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const generationJobs = new Map();
+const generationStages = {
+  queued: 'Queued',
+  claim_extraction: 'Extracting claims',
+  research: 'Gathering sources',
+  drafting: 'Writing the first draft',
+  review: 'Running fact-check and bias review',
+  revision: 'Revising the article',
+  citation_audit: 'Auditing citations',
+  saving: 'Saving draft',
+  completed: 'Draft ready',
+  failed: 'Generation failed'
+};
 
 app.enable('trust proxy');
 app.use(helmet({
@@ -121,6 +133,89 @@ Rules:
 - Prefer sourced quantitative data for comparison or outcome charts. If quantitative data is unavailable, create qualitative evidence maps such as claim support strength, source mix, timeline of sourced events, or argument coverage. Clearly label qualitative charts as qualitative or illustrative.
 - Visualizations must use simple JSON renderable as bar, line, area, pie, timeline, scorecard, metrics, comparison, ranked_bar, delta, evidence_matrix, or fact_table. Each data point should include label, at least one numeric value, and optional group, date, source, and note fields.
 - Never cite a URL that was not actually consulted.`;
+
+const claimExtractionJsonSchema = {
+  name: 'claim_extraction',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['claims', 'coverageRequirements', 'researchQuestions'],
+    properties: {
+      claims: {
+        type: 'array',
+        maxItems: 3,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['claim', 'type', 'needsCurrentSources', 'notes'],
+          properties: {
+            claim: { type: 'string' },
+            type: { type: 'string', enum: ['factual', 'predictive', 'opinion', 'mixed'] },
+            needsCurrentSources: { type: 'boolean' },
+            notes: { type: 'string' }
+          }
+        }
+      },
+      coverageRequirements: { type: 'array', items: { type: 'string' } },
+      researchQuestions: { type: 'array', items: { type: 'string' } }
+    }
+  },
+  strict: true
+};
+
+const reviewJsonSchema = {
+  name: 'article_review',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['skepticalReview', 'neutralityReview', 'requiredRevisions'],
+    properties: {
+      skepticalReview: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['severity', 'issue', 'fix'],
+          properties: {
+            severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+            issue: { type: 'string' },
+            fix: { type: 'string' }
+          }
+        }
+      },
+      neutralityReview: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['severity', 'issue', 'fix'],
+          properties: {
+            severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+            issue: { type: 'string' },
+            fix: { type: 'string' }
+          }
+        }
+      },
+      requiredRevisions: { type: 'array', items: { type: 'string' } }
+    }
+  },
+  strict: true
+};
+
+const citationAuditJsonSchema = {
+  name: 'citation_audit',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['passed', 'blockingIssues', 'warnings'],
+    properties: {
+      passed: { type: 'boolean' },
+      blockingIssues: { type: 'array', items: { type: 'string' } },
+      warnings: { type: 'array', items: { type: 'string' } }
+    }
+  },
+  strict: true
+};
 
 const articleJsonShape = {
   title: 'Specific article title',
@@ -345,7 +440,7 @@ async function injectHomeMeta(html, req) {
     .replace('</head>', `${meta}\n    ${dataScript}\n  </head>`);
 }
 
-function buildGenerationInput(input, existingCategories = []) {
+function buildGenerationInput(input, existingCategories = [], claimPlan = null) {
   const currentDate = currentDateString();
   return JSON.stringify({
     task: 'Research the user question using web search and return a source-grounded research brief.',
@@ -353,6 +448,9 @@ function buildGenerationInput(input, existingCategories = []) {
     requestedTone: input.tone,
     currentDate,
     existingCategories,
+    extractedClaims: claimPlan?.claims || [],
+    coverageRequirements: claimPlan?.coverageRequirements || [],
+    researchQuestions: claimPlan?.researchQuestions || [],
     inferenceRequirements: [
       'Infer the best category from the question. Prefer an existing category if it reasonably fits.',
       'Only create a new category if none of the existingCategories fit the article topic.',
@@ -386,6 +484,21 @@ function buildGenerationInput(input, existingCategories = []) {
     ],
     sourceUrls: input.sourceUrls
   });
+}
+
+async function openaiJson({ model, schema, temperature = 0.2, input }) {
+  const response = await openai.responses.create({
+    model,
+    temperature,
+    text: {
+      format: {
+        type: 'json_schema',
+        ...schema
+      }
+    },
+    input
+  });
+  return JSON.parse(response.output_text || '{}');
 }
 
 function normalizeSources(articleSources = [], responseSources = []) {
@@ -433,7 +546,7 @@ function canonicalSourceUrl(rawUrl = '') {
   const value = String(rawUrl || '').trim();
   if (!value) return '';
   try {
-    const url = new URL(value);
+    const url = new globalThis.URL(value);
     ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'msclkid'].forEach((param) => {
       url.searchParams.delete(param);
     });
@@ -448,7 +561,7 @@ function canonicalSourceUrl(rawUrl = '') {
 
 function sourceDomain(url = '') {
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    return new globalThis.URL(url).hostname.replace(/^www\./, '');
   } catch {
     return '';
   }
@@ -681,31 +794,55 @@ async function listExistingCategories() {
   return rows.map((row) => row.category);
 }
 
-async function performArticleGeneration(input, userId) {
+async function performArticleGeneration(input, userId, onStage = () => {}) {
   const existingCategories = await listExistingCategories();
   const currentDate = currentDateString();
+  const planningModel = process.env.OPENAI_PLANNING_MODEL || process.env.OPENAI_REVIEW_MODEL || process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const researchModel = process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const writingModel = process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const reviewModel = process.env.OPENAI_REVIEW_MODEL || process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
+  onStage('claim_extraction');
+  const claimPlan = await openaiJson({
+    model: planningModel,
+    schema: claimExtractionJsonSchema,
+    temperature: 0.1,
+    input: [
+      {
+        role: 'system',
+        content: 'Extract only claims and coverage requirements from the user prompt. Do not research, argue, or decide truth yet. Return JSON only.'
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Extract up to 3 concrete claims and the required coverage for a research article.',
+          currentDate,
+          prompt: input.prompt,
+          tone: input.tone
+        })
+      }
+    ]
+  });
+
+  onStage('research');
   const researchResponse = await openai.responses.create({
-    model: process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: researchModel,
     tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
     tool_choice: 'auto',
     temperature: 0.35,
     include: ['web_search_call.action.sources'],
     input: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: buildGenerationInput(input, existingCategories) }
+      { role: 'user', content: buildGenerationInput(input, existingCategories, claimPlan) }
     ]
   });
 
   const responseSources = researchResponse.output?.flatMap((item) => item.action?.sources || []) || [];
-  const draftingResponse = await openai.responses.create({
-    model: process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  onStage('drafting');
+  const draftArticle = await openaiJson({
+    model: writingModel,
+    schema: articleJsonSchema,
     temperature: 0.2,
-    text: {
-      format: {
-        type: 'json_schema',
-        ...articleJsonSchema
-      }
-    },
     input: [
       { role: 'system', content: systemPrompt },
       {
@@ -720,6 +857,7 @@ async function performArticleGeneration(input, userId) {
           categoryRules: 'Choose the best category from existingCategories whenever one reasonably fits. Reuse exact spelling and capitalization. Create a new category only if the existing list has no good fit.',
           requiredShape: articleJsonShape,
           originalRequest: input,
+          claimPlan,
           existingCategories,
           researchBrief: researchResponse.output_text,
           consultedSources: responseSources
@@ -728,9 +866,94 @@ async function performArticleGeneration(input, userId) {
     ]
   });
 
-  const generatedRaw = JSON.parse(draftingResponse.output_text || '{}');
+  onStage('review');
+  const articleReview = await openaiJson({
+    model: reviewModel,
+    schema: reviewJsonSchema,
+    temperature: 0.1,
+    input: [
+      {
+        role: 'system',
+        content: 'Review the draft as both a skeptical fact-checker and a neutrality/bias editor. Do not rewrite the article. Return concise JSON revision requirements only.'
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Find unsupported claims, stale evidence, missing coverage, bad chart fit, loaded wording, unfair framing, citation gaps, and safety risks.',
+          currentDate,
+          originalRequest: input,
+          claimPlan,
+          researchBrief: researchResponse.output_text,
+          consultedSources: responseSources,
+          draftArticle
+        })
+      }
+    ]
+  });
+
+  onStage('revision');
+  const generatedRaw = await openaiJson({
+    model: writingModel,
+    schema: articleJsonSchema,
+    temperature: 0.15,
+    input: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Revise the draft article to satisfy every required review item. Use only the research brief and consulted sources. Preserve the required JSON shape.',
+          currentDate,
+          revisionRules: [
+            'Resolve or clearly disclose every skeptical fact-check issue.',
+            'Resolve neutrality issues without making the article bland.',
+            'Remove unsupported claims rather than inventing support.',
+            'Keep article text substantial with at least 7 total paragraphs.',
+            'Keep chart IDs attached only to paragraphs they directly support.',
+            'Do not add sources that were not consulted.'
+          ],
+          originalRequest: input,
+          claimPlan,
+          existingCategories,
+          researchBrief: researchResponse.output_text,
+          consultedSources: responseSources,
+          draftArticle,
+          articleReview,
+          requiredShape: articleJsonShape
+        })
+      }
+    ]
+  });
+
   generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
+  onStage('citation_audit');
+  const citationAudit = await openaiJson({
+    model: reviewModel,
+    schema: citationAuditJsonSchema,
+    temperature: 0,
+    input: [
+      {
+        role: 'system',
+        content: 'Audit citations before save. Fail only for blocking problems: fabricated/unsupported citations, homepage-only citations where specific pages are required, claims with no source or uncertainty label, sourceIds that do not exist, or body text containing URL/citation dumps.'
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Return whether this generated article passes a final citation audit.',
+          originalRequest: input,
+          claimPlan,
+          article: generatedRaw,
+          consultedSources: responseSources
+        })
+      }
+    ]
+  });
+
+  if (!citationAudit.passed && citationAudit.blockingIssues?.length) {
+    throw new Error(`Citation audit failed: ${citationAudit.blockingIssues.slice(0, 3).join(' ')}`);
+  }
+
   const generated = normalizeGeneratedArticle(generatedRaw, input.category || 'Research');
+  onStage('saving');
   const insertPayload = {
     title: generated.title,
     slug: uniqueSlug(generated.slug),
@@ -913,6 +1136,8 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
     id: jobId,
     userId: req.user.id,
     status: 'queued',
+    stage: 'queued',
+    stageLabel: generationStages.queued,
     article: null,
     error: '',
     createdAt: Date.now()
@@ -920,12 +1145,32 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
   res.status(202).json({ jobId });
 
   try {
-    generationJobs.set(jobId, { ...generationJobs.get(jobId), status: 'running' });
-    const article = await performArticleGeneration(parsed.data, req.user.id);
-    generationJobs.set(jobId, { ...generationJobs.get(jobId), status: 'completed', article });
+    const setStage = (stage) => {
+      generationJobs.set(jobId, {
+        ...generationJobs.get(jobId),
+        status: 'running',
+        stage,
+        stageLabel: generationStages[stage] || generationStages.queued
+      });
+    };
+    setStage('claim_extraction');
+    const article = await performArticleGeneration(parsed.data, req.user.id, setStage);
+    generationJobs.set(jobId, {
+      ...generationJobs.get(jobId),
+      status: 'completed',
+      stage: 'completed',
+      stageLabel: generationStages.completed,
+      article
+    });
   } catch (error) {
     console.error(error);
-    generationJobs.set(jobId, { ...generationJobs.get(jobId), status: 'failed', error: publicGenerationError(error) });
+    generationJobs.set(jobId, {
+      ...generationJobs.get(jobId),
+      status: 'failed',
+      stage: 'failed',
+      stageLabel: generationStages.failed,
+      error: publicGenerationError(error)
+    });
   }
 });
 
@@ -935,7 +1180,7 @@ app.get('/api/generation-jobs/:id', requireDatabase, requireUser, (req, res) => 
     res.status(404).json({ error: 'Generation job not found.' });
     return;
   }
-  res.json({ job: { id: job.id, status: job.status, article: job.article, error: job.error } });
+  res.json({ job: { id: job.id, status: job.status, stage: job.stage, stageLabel: job.stageLabel, article: job.article, error: job.error } });
 });
 
 app.get('/api/articles', requireDatabase, async (req, res) => {

@@ -44,7 +44,7 @@ function displaySourceTitle(source) {
 
 function sourceDomain(url = '') {
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    return new globalThis.URL(url).hostname.replace(/^www\./, '');
   } catch {
     return '';
   }

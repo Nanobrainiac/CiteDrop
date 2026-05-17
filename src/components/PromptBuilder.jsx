@@ -1,7 +1,17 @@
 import { useState } from 'react';
 import { generateArticle } from '../lib/api.js';
 import { trackEvent } from '../lib/analytics.js';
-import { WandSparkles } from 'lucide-react';
+import { CheckCircle2, Loader2, WandSparkles } from 'lucide-react';
+
+const pipelineStages = [
+  { key: 'claim_extraction', label: 'Extracting claims' },
+  { key: 'research', label: 'Gathering sources' },
+  { key: 'drafting', label: 'Writing the first draft' },
+  { key: 'review', label: 'Running fact-check and bias review' },
+  { key: 'revision', label: 'Revising the article' },
+  { key: 'citation_audit', label: 'Auditing citations' },
+  { key: 'saving', label: 'Saving draft' }
+];
 
 export default function PromptBuilder({ onGenerated }) {
   const [form, setForm] = useState({
@@ -9,6 +19,7 @@ export default function PromptBuilder({ onGenerated }) {
     prompt: ''
   });
   const [loading, setLoading] = useState(false);
+  const [job, setJob] = useState(null);
   const [error, setError] = useState('');
 
   function updateField(field, value) {
@@ -18,9 +29,10 @@ export default function PromptBuilder({ onGenerated }) {
   async function handleSubmit(event) {
     event.preventDefault();
     setLoading(true);
+    setJob({ stage: 'claim_extraction', stageLabel: 'Extracting claims' });
     setError('');
     try {
-      const result = await generateArticle(form);
+      const result = await generateArticle(form, setJob);
       trackEvent('article_generated', {
         article_id: result.article?.id,
         article_slug: result.article?.slug,
@@ -34,9 +46,43 @@ export default function PromptBuilder({ onGenerated }) {
         error_message: err.message
       });
       setError(err.message);
+      setJob(null);
     } finally {
       setLoading(false);
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="glass-panel rounded-lg p-5">
+        <div className="flex items-start gap-4">
+          <div className="rounded-full bg-acid p-3 text-ink">
+            <Loader2 className="animate-spin" size={22} />
+          </div>
+          <div>
+            <p className="text-sm font-bold uppercase text-acid">Generation in progress</p>
+            <h2 className="mt-2 text-2xl font-black">{job?.stageLabel || 'Building your article'}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">CiteDrop is checking the claim, gathering sources, drafting, reviewing, revising, and auditing citations before saving your draft.</p>
+          </div>
+        </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {pipelineStages.map((stage) => {
+            const currentIndex = pipelineStages.findIndex((item) => item.key === job?.stage);
+            const stageIndex = pipelineStages.findIndex((item) => item.key === stage.key);
+            const isDone = currentIndex > stageIndex;
+            const isActive = currentIndex === stageIndex;
+            return (
+              <div key={stage.key} className={`rounded-md border p-3 ${isActive ? 'border-acid bg-acid/10' : isDone ? 'border-acid/30 bg-white/[0.04]' : 'border-white/10 bg-black/20'}`}>
+                <div className="flex items-center gap-2">
+                  {isDone ? <CheckCircle2 className="text-acid" size={17} /> : isActive ? <Loader2 className="animate-spin text-acid" size={17} /> : <span className="h-[17px] w-[17px] rounded-full border border-white/20" />}
+                  <span className="text-sm font-bold">{stage.label}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (

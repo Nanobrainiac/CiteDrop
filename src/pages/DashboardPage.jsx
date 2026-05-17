@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import EmptyState from '../components/EmptyState.jsx';
 import LoadingState from '../components/LoadingState.jsx';
 import MyArticleTable from '../components/MyArticleTable.jsx';
@@ -16,6 +16,7 @@ const dashboardTabs = [
 const pageSize = 10;
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const [generated, setGenerated] = useState(null);
   const [articles, setArticles] = useState([]);
   const [page, setPage] = useState(1);
@@ -43,6 +44,7 @@ export default function DashboardPage() {
     setGenerated(article);
     setPage(1);
     loadMyArticles(1);
+    if (article?.slug) navigate(`/articles/${article.slug}`);
   }
 
   return (

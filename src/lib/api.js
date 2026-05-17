@@ -1,7 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 let authTokenGetter = null;
 const generationPollInterval = 2500;
-const generationTimeout = 180000;
+const generationTimeout = 600000;
 
 export function setAuthTokenGetter(getter) {
   authTokenGetter = getter;
@@ -53,23 +53,24 @@ export function getArticle(slug, preview = false) {
   return request(`/api/articles/${slug}${preview ? '?preview=true' : ''}`, { headers: {} });
 }
 
-export function generateArticle(payload) {
+export function generateArticle(payload, onProgress) {
   return request('/api/generate-article', {
     method: 'POST',
     body: JSON.stringify(payload)
-  }).then((result) => result.article ? result : waitForGenerationJob(result.jobId));
+  }).then((result) => result.article ? result : waitForGenerationJob(result.jobId, onProgress));
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForGenerationJob(jobId) {
+async function waitForGenerationJob(jobId, onProgress) {
   if (!jobId) throw new Error('Article generation did not start.');
   const startedAt = Date.now();
   while (Date.now() - startedAt < generationTimeout) {
     await sleep(generationPollInterval);
     const result = await request(`/api/generation-jobs/${jobId}`);
+    onProgress?.(result.job);
     if (result.job.status === 'completed') return { article: result.job.article };
     if (result.job.status === 'failed') throw new Error(result.job.error || 'Article generation failed.');
   }
