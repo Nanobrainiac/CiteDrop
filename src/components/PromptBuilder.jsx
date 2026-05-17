@@ -4,7 +4,7 @@ import { trackEvent } from '../lib/analytics.js';
 import { CheckCircle2, Loader2, WandSparkles } from 'lucide-react';
 
 const pipelineStages = [
-  { key: 'claim_extraction', label: 'Extracting claims' },
+  { key: 'claim_extraction', label: 'Interpreting prompt' },
   { key: 'research', label: 'Gathering sources' },
   { key: 'drafting', label: 'Writing the first draft' },
   { key: 'review', label: 'Running fact-check and bias review' },
@@ -30,7 +30,7 @@ export default function PromptBuilder({ onGenerated }) {
   async function handleSubmit(event) {
     event.preventDefault();
     setLoading(true);
-    setJob({ stage: 'claim_extraction', stageLabel: 'Extracting claims' });
+    setJob({ stage: 'claim_extraction', stageLabel: 'Interpreting prompt' });
     setError('');
     try {
       const result = await generateArticle(form, setJob);

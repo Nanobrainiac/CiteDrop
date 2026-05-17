@@ -27,7 +27,7 @@ const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPE
 const generationJobs = new Map();
 const generationStages = {
   queued: 'Queued',
-  claim_extraction: 'Extracting claims',
+  claim_extraction: 'Interpreting prompt',
   research: 'Gathering sources',
   drafting: 'Writing the first draft',
   review: 'Running fact-check and bias review',
@@ -136,12 +136,15 @@ Rules:
 - Never cite a URL that was not actually consulted.`;
 
 const claimExtractionJsonSchema = {
-  name: 'claim_extraction',
+  name: 'prompt_interpretation',
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['claims', 'coverageRequirements', 'researchQuestions'],
+    required: ['promptType', 'answerMode', 'expectedVerdictStyle', 'claims', 'coverageRequirements', 'researchQuestions'],
     properties: {
+      promptType: { type: 'string', enum: ['claim', 'question', 'comparison', 'mixed'] },
+      answerMode: { type: 'string', enum: ['fact_check', 'explainer', 'comparison', 'limited_evidence'] },
+      expectedVerdictStyle: { type: 'string', enum: ['claim_verdict', 'evidence_summary', 'insufficient_data'] },
       claims: {
         type: 'array',
         maxItems: 3,
@@ -229,7 +232,7 @@ const articleJsonShape = {
   ],
   keyClaims: [
     {
-      claim: 'Claim from the user prompt',
+      claim: 'Claim from the user prompt or evidence finding for a user question',
       verdict: 'true|false|mixed|unsure',
       verdictSummary: 'Short plain-English judgment',
       confidenceScore: 82,
@@ -449,10 +452,15 @@ function buildGenerationInput(input, existingCategories = [], claimPlan = null) 
     requestedTone: input.tone,
     currentDate,
     existingCategories,
+    promptType: claimPlan?.promptType || 'mixed',
+    answerMode: claimPlan?.answerMode || 'fact_check',
+    expectedVerdictStyle: claimPlan?.expectedVerdictStyle || 'claim_verdict',
     extractedClaims: claimPlan?.claims || [],
     coverageRequirements: claimPlan?.coverageRequirements || [],
     researchQuestions: claimPlan?.researchQuestions || [],
     inferenceRequirements: [
+      'If the user asked a question rather than making a claim, answer the research question directly instead of forcing a true/false verdict.',
+      'If the available public evidence is limited, create a limited-evidence draft explaining what was found, what was not found, and what would be needed for a stronger determination.',
       'Infer the best category from the question. Prefer an existing category if it reasonably fits.',
       'Only create a new category if none of the existingCategories fit the article topic.',
       'Infer the useful chart count and chart types from the evidence.',
@@ -466,7 +474,7 @@ function buildGenerationInput(input, existingCategories = [], claimPlan = null) 
       'If older data is used, explain whether it is the latest available, authoritative historical context, or still relevant despite age.',
       'Do not cite generic homepages when a specific article/report/page is needed.',
       'Before writing, identify the core coverage requirements in the user prompt and ensure each is addressed explicitly.',
-      'Extract up to 3 concrete claims from the user prompt and judge each as true, false, mixed, or unsure.',
+      'Extract up to 3 concrete claims only when the user actually makes claims. For questions, produce evidence findings tied to the research questions.',
       'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
       'Every key claim must identify source support or uncertainty.',
       'The final article should have 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and should provide evidence, context, caveats, and interpretation.',
@@ -586,10 +594,10 @@ async function repairArticleCitations({ writingModel, input, claimPlan, existing
           currentDate,
           attempt,
           repairRules: [
-            'For every unsupported factual claim, either attach relevant existing source support, remove the claim, soften it, or explicitly state that available public evidence is insufficient to make a determination.',
+            'For every unsupported factual claim or unanswered research question, either attach relevant existing source support, remove the claim, soften it, or explicitly state that available public evidence is insufficient to make a determination.',
             'Do not invent new sources, URLs, statistics, quotes, or source metadata.',
             'Use only the research brief and consulted sources.',
-            'If there is not enough public data, make that limitation clear in the relevant claim verdict, summary, and body text.',
+            'If there is not enough public data, save a useful limited-evidence draft: explain what was found, what was not found, and what evidence would be needed for a stronger determination.',
             'Keep sources only in the sources array. Do not place raw URLs, citation dumps, references sections, or markdown links in body text.',
             'Keep chart IDs attached only to paragraphs they directly support.'
           ],
@@ -894,10 +902,16 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       {
         role: 'user',
         content: JSON.stringify({
-          task: 'Extract up to 3 concrete claims and the required coverage for a research article.',
+          task: 'Interpret the prompt. Classify whether it is a claim, question, comparison, or mixed. Extract up to 3 concrete claims only if the user actually made claims; otherwise create research questions and coverage requirements.',
           currentDate,
           prompt: input.prompt,
-          tone: input.tone
+          tone: input.tone,
+          rules: [
+            'Do not turn a genuine question into a fake claim.',
+            'For questions, set expectedVerdictStyle to evidence_summary or insufficient_data.',
+            'For comparisons, identify what evidence would fairly compare the subjects.',
+            'If the likely answer depends on unavailable public evidence, set answerMode to limited_evidence.'
+          ]
         })
       }
     ]
@@ -931,7 +945,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           currentDate,
           freshnessRules: `Use ${currentDate} as the time context. Include an "As of ${currentDate}" framing sentence in the summary or opening body section. Prefer reliable sources from the last 24 months. For fast-moving topics, prioritize 2025-2026 sources. If older data is used, explain why it remains relevant, authoritative, or the latest available.`,
           bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
-          claimRules: 'Extract up to 3 user-made claims. For each, return a verdict of true, false, mixed, or unsure, a confidenceScore from 0 to 100, a confidenceLabel, a short verdictSummary, support reasoning, and sourceIds.',
+          claimRules: 'For claim prompts, extract up to 3 user-made claims. For question/comparison prompts, return up to 3 evidence findings instead of fake claims. Each item must still include claim, verdict, confidenceScore, confidenceLabel, verdictSummary, support, and sourceIds. Use verdict "unsure" when public evidence is insufficient, and explain what was and was not found.',
           chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use delta for two-point before/after or first/last changes. Use ranked_bar for ranked lists, long category labels, and ordered comparisons. Use fact_table for legal criteria, definitions, categorical facts, or single facts. Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           categoryRules: 'Choose the best category from existingCategories whenever one reasonably fits. Reuse exact spelling and capitalization. Create a new category only if the existing list has no good fit.',
           requiredShape: articleJsonShape,
@@ -1022,8 +1036,10 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
 
     if (attempt === maxCitationRepairAttempts) {
       const hardAuditIssues = hardCitationAuditIssues(blockingIssues);
-      const reason = (hardAuditIssues.length ? hardAuditIssues : blockingIssues).slice(0, 2).join(' ');
-      throw new Error(`CiteDrop could not find enough public source support to make a confident determination. ${reason}`);
+      if (hardAuditIssues.length) {
+        throw new Error(`CiteDrop could not create a source-safe draft. ${hardAuditIssues.slice(0, 2).join(' ')}`);
+      }
+      break;
     }
 
     onStage('citation_repair');

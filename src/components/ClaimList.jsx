@@ -2,7 +2,7 @@ export default function ClaimList({ claims = [] }) {
   if (!claims.length) return null;
   return (
     <section className="glass-panel min-w-0 overflow-hidden rounded-lg p-4 sm:p-6">
-      <h2 className="text-2xl font-black">Claims Checked</h2>
+      <h2 className="text-2xl font-black">Claims & Findings</h2>
       <div className="mt-5 space-y-3">
         {claims.map((claim, index) => (
           <article key={`${claim.claim}-${index}`} className="min-w-0 rounded-md border border-white/10 bg-white/[0.04] p-4">
