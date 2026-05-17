@@ -33,6 +33,7 @@ const generationStages = {
   review: 'Running fact-check and bias review',
   revision: 'Revising the article',
   citation_audit: 'Auditing citations',
+  citation_repair: 'Repairing citation issues',
   saving: 'Saving draft',
   completed: 'Draft ready',
   failed: 'Generation failed'
@@ -542,6 +543,70 @@ function repairClaimSourceIds(claims = [], sources = []) {
   });
 }
 
+function hardCitationAuditIssues(issues = []) {
+  const hardFailurePattern = /(fabricat|invent|not actually consulted|no sources?|zero sources?|homepage-only|body text.*url|url\/citation dumps?|raw urls?)/i;
+  return issues.filter((issue) => hardFailurePattern.test(String(issue || '')));
+}
+
+async function auditGeneratedArticle({ reviewModel, input, claimPlan, article, consultedSources }) {
+  return openaiJson({
+    model: reviewModel,
+    schema: citationAuditJsonSchema,
+    temperature: 0,
+    input: [
+      {
+        role: 'system',
+        content: 'Audit citations before draft save. Fail for factual claims with no relevant source support or no clear uncertainty/insufficient-evidence label, fabricated citations, sources that were not actually consulted, no usable sources, homepage-only citations where a specific page is required, or body text containing URL/citation dumps. Treat source specificity gaps and claims needing better pinpoint citation as warnings only when the article already has relevant source support. Do not fail for sourceIds; the server validates and repairs sourceIds before this audit.'
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Return whether this generated article passes a final citation audit.',
+          originalRequest: input,
+          claimPlan,
+          article,
+          consultedSources
+        })
+      }
+    ]
+  });
+}
+
+async function repairArticleCitations({ writingModel, input, claimPlan, existingCategories, currentDate, researchBrief, consultedSources, article, citationAudit, attempt }) {
+  return openaiJson({
+    model: writingModel,
+    schema: articleJsonSchema,
+    temperature: 0.1,
+    input: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Repair citation audit problems in this article. Preserve the required article JSON shape.',
+          currentDate,
+          attempt,
+          repairRules: [
+            'For every unsupported factual claim, either attach relevant existing source support, remove the claim, soften it, or explicitly state that available public evidence is insufficient to make a determination.',
+            'Do not invent new sources, URLs, statistics, quotes, or source metadata.',
+            'Use only the research brief and consulted sources.',
+            'If there is not enough public data, make that limitation clear in the relevant claim verdict, summary, and body text.',
+            'Keep sources only in the sources array. Do not place raw URLs, citation dumps, references sections, or markdown links in body text.',
+            'Keep chart IDs attached only to paragraphs they directly support.'
+          ],
+          originalRequest: input,
+          claimPlan,
+          existingCategories,
+          researchBrief,
+          consultedSources,
+          citationAudit,
+          article,
+          requiredShape: articleJsonShape
+        })
+      }
+    ]
+  });
+}
+
 function cleanSource(source = {}) {
   const url = canonicalSourceUrl(source.url || '');
   const domain = sourceDomain(url);
@@ -906,7 +971,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   });
 
   onStage('revision');
-  const generatedRaw = await openaiJson({
+  let generatedRaw = await openaiJson({
     model: writingModel,
     schema: articleJsonSchema,
     temperature: 0.15,
@@ -938,33 +1003,42 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
     ]
   });
 
-  generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
-  generatedRaw.keyClaims = repairClaimSourceIds(generatedRaw.keyClaims, generatedRaw.sources);
-  onStage('citation_audit');
-  const citationAudit = await openaiJson({
-    model: reviewModel,
-    schema: citationAuditJsonSchema,
-    temperature: 0,
-    input: [
-      {
-        role: 'system',
-        content: 'Audit citations before save. Fail only for blocking problems: fabricated/unsupported citations, homepage-only citations where specific pages are required, factual claims with neither source support nor uncertainty disclosure, or body text containing URL/citation dumps. Do not fail for sourceIds; the server validates and repairs sourceIds before this audit.'
-      },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          task: 'Return whether this generated article passes a final citation audit.',
-          originalRequest: input,
-          claimPlan,
-          article: generatedRaw,
-          consultedSources: responseSources
-        })
-      }
-    ]
-  });
+  let citationAudit = null;
+  const maxCitationRepairAttempts = 2;
+  for (let attempt = 0; attempt <= maxCitationRepairAttempts; attempt += 1) {
+    generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
+    generatedRaw.keyClaims = repairClaimSourceIds(generatedRaw.keyClaims, generatedRaw.sources);
+    onStage('citation_audit');
+    citationAudit = await auditGeneratedArticle({
+      reviewModel,
+      input,
+      claimPlan,
+      article: generatedRaw,
+      consultedSources: responseSources
+    });
 
-  if (!citationAudit.passed && citationAudit.blockingIssues?.length) {
-    throw new Error(`Citation audit failed: ${citationAudit.blockingIssues.slice(0, 3).join(' ')}`);
+    const blockingIssues = Array.isArray(citationAudit.blockingIssues) ? citationAudit.blockingIssues : [];
+    if (citationAudit.passed || !blockingIssues.length) break;
+
+    if (attempt === maxCitationRepairAttempts) {
+      const hardAuditIssues = hardCitationAuditIssues(blockingIssues);
+      const reason = (hardAuditIssues.length ? hardAuditIssues : blockingIssues).slice(0, 2).join(' ');
+      throw new Error(`CiteDrop could not find enough public source support to make a confident determination. ${reason}`);
+    }
+
+    onStage('citation_repair');
+    generatedRaw = await repairArticleCitations({
+      writingModel,
+      input,
+      claimPlan,
+      existingCategories,
+      currentDate,
+      researchBrief: researchResponse.output_text,
+      consultedSources: responseSources,
+      article: generatedRaw,
+      citationAudit,
+      attempt: attempt + 1
+    });
   }
 
   const generated = normalizeGeneratedArticle(generatedRaw, input.category || 'Research');

@@ -10,6 +10,7 @@ const pipelineStages = [
   { key: 'review', label: 'Running fact-check and bias review' },
   { key: 'revision', label: 'Revising the article' },
   { key: 'citation_audit', label: 'Auditing citations' },
+  { key: 'citation_repair', label: 'Repairing citation issues' },
   { key: 'saving', label: 'Saving draft' }
 ];
 
