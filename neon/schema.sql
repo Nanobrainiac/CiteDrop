@@ -14,7 +14,7 @@ create table if not exists articles (
   subtitle text,
   summary text,
   category text not null default 'Research',
-  status text not null default 'draft' check (status in ('draft', 'published', 'archived')),
+  status text not null default 'draft' check (status in ('draft', 'published', 'archived', 'deleted')),
   body jsonb not null default '[]'::jsonb,
   claims_json jsonb not null default '[]'::jsonb,
   charts_json jsonb not null default '[]'::jsonb,
@@ -29,6 +29,13 @@ alter table articles
 
 alter table articles
   alter column created_by type text using created_by::text;
+
+alter table articles
+  drop constraint if exists articles_status_check;
+
+alter table articles
+  add constraint articles_status_check
+  check (status in ('draft', 'published', 'archived', 'deleted'));
 
 create index if not exists articles_status_created_at_idx on articles(status, created_at desc);
 create index if not exists articles_category_idx on articles(category);

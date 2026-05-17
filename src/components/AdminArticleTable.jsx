@@ -63,6 +63,7 @@ export default function AdminArticleTable({ articles, onChange }) {
                     <option value="draft">Draft</option>
                     <option value="published">Published</option>
                     <option value="archived">Archived</option>
+                    <option value="deleted">Deleted</option>
                   </select>
                 </td>
                 <td className="px-4 py-4 text-white/50">{formatDate(article.created_at)}</td>

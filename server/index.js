@@ -75,7 +75,7 @@ const generationSchema = z.object({
 const articlePatchSchema = z.object({
   title: z.string().min(3).max(180).optional(),
   category: z.string().min(2).max(80).optional(),
-  status: z.enum(['draft', 'published', 'archived']).optional()
+  status: z.enum(['draft', 'published', 'archived', 'deleted']).optional()
 });
 
 const ownerArticlePatchSchema = z.object({
@@ -1306,6 +1306,7 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
   } else if (ownOnly) {
     visibilityValues.push(user.id);
     visibilityFilters.push(`created_by = $${visibilityValues.length}`);
+    visibilityFilters.push(`status <> 'deleted'`);
   }
 
   const filters = [...visibilityFilters];
@@ -1349,8 +1350,9 @@ app.get('/api/articles/:slug', requireDatabase, async (req, res) => {
   try {
     const { rows } = await query('select * from articles where slug = $1 limit 1', [req.params.slug]);
     const article = rows[0];
-    const canPreviewDraft = user && (user.role === 'admin' || article?.created_by === user.id);
-    if (!article || (article.status !== 'published' && !canPreviewDraft)) {
+    const canPreviewDraft = user && article?.status !== 'deleted' && (user.role === 'admin' || article?.created_by === user.id);
+    const canViewDeleted = user?.role === 'admin' && article?.status === 'deleted';
+    if (!article || (article.status !== 'published' && !canPreviewDraft && !canViewDeleted)) {
       res.status(404).json({ error: 'Article not found.' });
       return;
     }
@@ -1450,8 +1452,14 @@ app.delete('/api/articles/:id', requireDatabase, requireUser, async (req, res) =
   try {
     const values = req.user.role === 'admin' ? [req.params.id] : [req.params.id, req.user.id];
     const where = req.user.role === 'admin' ? 'id = $1' : 'id = $1 and created_by = $2';
-    const result = await query(`delete from articles where ${where}`, values);
-    if (result.rowCount === 0) {
+    const { rows } = await query(
+      `update articles
+       set status = 'deleted', updated_at = now()
+       where ${where}
+       returning id`,
+      values
+    );
+    if (!rows[0]) {
       res.status(404).json({ error: 'Article not found.' });
       return;
     }
