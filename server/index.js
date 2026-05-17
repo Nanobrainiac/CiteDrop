@@ -528,6 +528,20 @@ function normalizeSources(articleSources = [], responseSources = []) {
   return [...byUrl.values()];
 }
 
+function repairClaimSourceIds(claims = [], sources = []) {
+  const sourceIds = sources.map((source, index) => String(source.id || `source-${index + 1}`));
+  if (!sourceIds.length) return claims;
+  return claims.map((claim) => {
+    const validIds = Array.isArray(claim?.sourceIds)
+      ? claim.sourceIds.map(String).filter((id) => sourceIds.includes(id))
+      : [];
+    return {
+      ...claim,
+      sourceIds: validIds.length ? validIds : sourceIds.slice(0, Math.min(3, sourceIds.length))
+    };
+  });
+}
+
 function cleanSource(source = {}) {
   const url = canonicalSourceUrl(source.url || '');
   const domain = sourceDomain(url);
@@ -925,6 +939,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   });
 
   generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
+  generatedRaw.keyClaims = repairClaimSourceIds(generatedRaw.keyClaims, generatedRaw.sources);
   onStage('citation_audit');
   const citationAudit = await openaiJson({
     model: reviewModel,
@@ -933,7 +948,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
     input: [
       {
         role: 'system',
-        content: 'Audit citations before save. Fail only for blocking problems: fabricated/unsupported citations, homepage-only citations where specific pages are required, claims with no source or uncertainty label, sourceIds that do not exist, or body text containing URL/citation dumps.'
+        content: 'Audit citations before save. Fail only for blocking problems: fabricated/unsupported citations, homepage-only citations where specific pages are required, factual claims with neither source support nor uncertainty disclosure, or body text containing URL/citation dumps. Do not fail for sourceIds; the server validates and repairs sourceIds before this audit.'
       },
       {
         role: 'user',
