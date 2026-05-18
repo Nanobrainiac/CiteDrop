@@ -749,6 +749,49 @@ function normalizeSources(articleSources = [], responseSources = []) {
   }));
 }
 
+function sourceKey(source = {}) {
+  return canonicalSourceUrl(source.url || '') || String(source.title || '').trim();
+}
+
+function verifiedUsableSources(sources = []) {
+  const verifiedKeys = new Set(
+    sources
+      .filter((source) => source.verified && source.sourceTextSample)
+      .map(sourceKey)
+      .filter(Boolean)
+  );
+  return sources.filter((source) => verifiedKeys.has(sourceKey(source)));
+}
+
+function removeUnusableSourcesFromArticle(article, usableSources) {
+  const usableKeys = new Set(usableSources.map(sourceKey).filter(Boolean));
+  const usableIds = new Set(usableSources.map((source) => String(source.id)));
+  const filteredSources = normalizeSources(article.sources || [])
+    .filter((source) => usableKeys.has(sourceKey(source)));
+
+  return {
+    ...article,
+    sources: filteredSources,
+    keyClaims: Array.isArray(article.keyClaims)
+      ? article.keyClaims.map((claim) => ({
+        ...claim,
+        sourceIds: Array.isArray(claim.sourceIds) ? claim.sourceIds.filter((id) => usableIds.has(String(id))) : []
+      }))
+      : [],
+    body: Array.isArray(article.body)
+      ? article.body.map((section) => ({
+        ...section,
+        paragraphs: Array.isArray(section.paragraphs)
+          ? section.paragraphs.map((paragraph) => ({
+            ...paragraph,
+            sourceIds: Array.isArray(paragraph.sourceIds) ? paragraph.sourceIds.filter((id) => usableIds.has(String(id))) : []
+          }))
+          : []
+      }))
+      : []
+  };
+}
+
 function repairClaimSourceIds(claims = [], sources = []) {
   const sourceIds = sources.map((source, index) => String(source.id || `source-${index + 1}`));
   if (!sourceIds.length) return claims;
@@ -1181,6 +1224,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   const normalizedConsultedSources = normalizeSources([], responseSources);
   onStage('source_ingestion');
   const ingestedSources = await ingestSources(normalizedConsultedSources, onStage);
+  const usableSources = verifiedUsableSources(ingestedSources);
 
   onStage('evidence_synthesis');
   onStage('ranking_primary_sources', 'Ranking primary and authoritative sources by relevance, recency, specificity, and authority.');
@@ -1202,11 +1246,11 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           claimPlan,
           targets,
           researchBriefs,
-          consultedSources: ingestedSources,
+          consultedSources: usableSources.length ? usableSources : ingestedSources,
           scoringRules: [
             'Score sources higher when they are primary, specific, recent, authoritative, and directly answer the target.',
             'Score sources higher when sourceTextSample confirms readable page or PDF text was extracted.',
-            'Score sources lower when verified is false, the page has no readable extracted text, or the source only appears as a search-result citation.',
+            'Treat verified false, HTTP 404/not found, failed fetches, pages with no readable text, and search-result-only citations as unusable unless no better public evidence exists.',
             'Score broad summaries, generic pages, stale pages, and indirect evidence lower.',
             'Include counterSources or limitations when evidence is mixed, weak, disputed, or not directly responsive.',
             'Do not invent source URLs or source details.'
@@ -1240,7 +1284,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           existingCategories,
           evidencePacket,
           targetedResearch: researchBriefs,
-          consultedSources: ingestedSources
+          consultedSources: usableSources
         })
       }
     ]
@@ -1265,7 +1309,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           claimPlan,
           evidencePacket,
           targetedResearch: researchBriefs,
-          consultedSources: ingestedSources,
+          consultedSources: usableSources,
           draftArticle
         })
       }
@@ -1298,7 +1342,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           existingCategories,
           evidencePacket,
           targetedResearch: researchBriefs,
-          consultedSources: ingestedSources,
+          consultedSources: usableSources,
           draftArticle,
           articleReview,
           requiredShape: articleJsonShape
@@ -1311,6 +1355,9 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   const maxCitationRepairAttempts = 2;
   for (let attempt = 0; attempt <= maxCitationRepairAttempts; attempt += 1) {
     generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
+    if (usableSources.length >= 4) {
+      generatedRaw = removeUnusableSourcesFromArticle(generatedRaw, usableSources);
+    }
     generatedRaw.keyClaims = repairClaimSourceIds(generatedRaw.keyClaims, generatedRaw.sources);
     generatedRaw.body = repairParagraphSourceIds(generatedRaw.body, generatedRaw.sources);
     onStage('citation_audit');
@@ -1319,7 +1366,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       input,
       claimPlan,
       article: generatedRaw,
-      consultedSources: ingestedSources
+      consultedSources: usableSources.length ? usableSources : ingestedSources
     });
 
     const blockingIssues = Array.isArray(citationAudit.blockingIssues) ? citationAudit.blockingIssues : [];
@@ -1341,7 +1388,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       existingCategories,
       currentDate,
       researchBrief: JSON.stringify({ evidencePacket, targetedResearch: researchBriefs }),
-      consultedSources: ingestedSources,
+      consultedSources: usableSources.length ? usableSources : ingestedSources,
       article: generatedRaw,
       citationAudit,
       attempt: attempt + 1
