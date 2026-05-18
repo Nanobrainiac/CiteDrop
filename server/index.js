@@ -109,14 +109,14 @@ Rules:
 - Extract up to 3 concrete claims from the user's prompt. Do not invent claims the user did not make.
 - Each extracted claim must include verdict true, false, mixed, or unsure; confidenceScore 0-100; confidenceLabel high, medium, or low; a short verdictSummary; and support reasoning.
 - Title must be short and broad enough to cover all checked claims. Put nuance in subtitle and summary, not the title.
-- Article body must be an array of sections with heading and paragraphs. Each paragraph must be an object with text and chartIds.
+- Article body must be an array of sections with heading and paragraphs. Each paragraph must be an object with text, chartIds, and sourceIds.
 - Write substantial article text. Return 3 to 6 body sections and at least 7 total paragraphs.
 - Each body paragraph should usually be 90 to 160 words. Short transition paragraphs are allowed, but most paragraphs need specific evidence, context, caveats, and interpretation.
 - Not every paragraph needs a chart. Use chartIds only when a visualization directly supports that paragraph.
 - For each checked claim, include enough body text to explain what is supported, what is not supported, and what reasonable caveats remain.
 - Do not put source lists, reference lists, bibliography sections, raw URLs, markdown links, or citation dumps in the article body. Put every source only in the sources array.
-- Body paragraphs may mention source names naturally, but source URLs belong only in the sources array.
-- Place chart IDs in the chartIds array immediately after paragraphs they help explain. Leave chartIds empty when no chart belongs after that paragraph.
+- Body paragraphs may mention source names naturally, but source URLs belong only in the sources array. Use paragraph sourceIds to connect each paragraph to the specific sources that support it.
+- Place source IDs in each paragraph sourceIds array for the sources that support that paragraph. Place chart IDs in the chartIds array immediately after paragraphs they help explain. Leave chartIds empty when no chart belongs after that paragraph.
 - Every generated chart must be referenced by at least one paragraph chartIds entry. If a chart is useful enough to include, write body text that explains it.
 - Do not create orphan charts that introduce a new topic after the article text. Either place the chart after relevant discussion or omit the chart.
 - Include 2 to 4 useful visualizations. Each visualization must answer a specific question, state a takeaway, identify units, note source support, and name limitations.
@@ -228,7 +228,7 @@ const articleJsonShape = {
   summary: 'Short public card summary',
   category: 'Category',
   body: [
-    { heading: 'Section heading', paragraphs: [{ text: 'Paragraph text', chartIds: ['chart-id-when-relevant'] }] }
+    { heading: 'Section heading', paragraphs: [{ text: 'Paragraph text', chartIds: ['chart-id-when-relevant'], sourceIds: ['source-id-for-this-paragraph'] }] }
   ],
   keyClaims: [
     {
@@ -534,7 +534,10 @@ function normalizeSources(articleSources = [], responseSources = []) {
       });
     }
   }
-  return [...byUrl.values()];
+  return [...byUrl.values()].map((source, index) => ({
+    ...source,
+    id: String(source.id || `source-${index + 1}`)
+  }));
 }
 
 function repairClaimSourceIds(claims = [], sources = []) {
@@ -551,6 +554,22 @@ function repairClaimSourceIds(claims = [], sources = []) {
   });
 }
 
+function repairParagraphSourceIds(body = [], sources = []) {
+  const sourceIds = new Set(sources.map((source, index) => String(source.id || `source-${index + 1}`)));
+  if (!sourceIds.size) return body;
+  return body.map((section) => ({
+    ...section,
+    paragraphs: Array.isArray(section?.paragraphs)
+      ? section.paragraphs.map((paragraph) => ({
+        ...paragraph,
+        sourceIds: Array.isArray(paragraph?.sourceIds)
+          ? paragraph.sourceIds.map(String).filter((id) => sourceIds.has(id))
+          : []
+      }))
+      : []
+  }));
+}
+
 function hardCitationAuditIssues(issues = []) {
   const hardFailurePattern = /(fabricat|invent|not actually consulted|no sources?|zero sources?|homepage-only|body text.*url|url\/citation dumps?|raw urls?)/i;
   return issues.filter((issue) => hardFailurePattern.test(String(issue || '')));
@@ -564,7 +583,7 @@ async function auditGeneratedArticle({ reviewModel, input, claimPlan, article, c
     input: [
       {
         role: 'system',
-        content: 'Audit citations before draft save. Fail for factual claims with no relevant source support or no clear uncertainty/insufficient-evidence label, fabricated citations, sources that were not actually consulted, no usable sources, homepage-only citations where a specific page is required, or body text containing URL/citation dumps. Treat source specificity gaps and claims needing better pinpoint citation as warnings only when the article already has relevant source support. Do not fail for sourceIds; the server validates and repairs sourceIds before this audit.'
+        content: 'Audit citations before draft save. Fail for factual claims with no relevant source support or no clear uncertainty/insufficient-evidence label, fabricated citations, sources that were not actually consulted, no usable sources, homepage-only citations where a specific page is required, or body text containing URL/citation dumps. Treat source specificity gaps and claims needing better pinpoint citation as warnings only when the article already has relevant source support. Paragraph sourceIds should connect evidence-bearing paragraphs to supporting sources. Do not fail for invalid sourceIds; the server validates and repairs sourceIds before this audit.'
       },
       {
         role: 'user',
@@ -598,7 +617,8 @@ async function repairArticleCitations({ writingModel, input, claimPlan, existing
             'Do not invent new sources, URLs, statistics, quotes, or source metadata.',
             'Use only the research brief and consulted sources.',
             'If there is not enough public data, save a useful limited-evidence draft: explain what was found, what was not found, and what evidence would be needed for a stronger determination.',
-            'Keep sources only in the sources array. Do not place raw URLs, citation dumps, references sections, or markdown links in body text.',
+            'Every paragraph object must include sourceIds. Evidence-bearing paragraphs should include the source IDs that support them.',
+            'Keep sources only in the sources array. Do not place raw URLs, citation dumps, references sections, or markdown links in body text. Use paragraph sourceIds to connect paragraphs to sources.',
             'Keep chart IDs attached only to paragraphs they directly support.'
           ],
           originalRequest: input,
@@ -696,10 +716,11 @@ const articleJsonSchema = {
               items: {
                 type: 'object',
                 additionalProperties: false,
-                required: ['text', 'chartIds'],
+                required: ['text', 'chartIds', 'sourceIds'],
                 properties: {
                   text: { type: 'string' },
-                  chartIds: { type: 'array', items: { type: 'string' } }
+                  chartIds: { type: 'array', items: { type: 'string' } },
+                  sourceIds: { type: 'array', items: { type: 'string' } }
                 }
               }
             }
@@ -826,7 +847,8 @@ function attachOrphanCharts(body, charts) {
       heading: 'Additional Evidence',
       paragraphs: orphanCharts.map((chart) => ({
         text: chart.takeaway || chart.note || `${chart.title} adds context to the report.`,
-        chartIds: [chart.id]
+        chartIds: [chart.id],
+        sourceIds: []
       }))
     }
   ];
@@ -843,14 +865,19 @@ function sanitizeArticleBody(body) {
         ? section.paragraphs
           .map((paragraph) => {
             if (typeof paragraph === 'string') {
-              return String(paragraph || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim();
+              return {
+                text: String(paragraph || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim(),
+                chartIds: [],
+                sourceIds: []
+              };
             }
             return {
               text: String(paragraph?.text || '').replace(urlPattern, '').replace(/\s{2,}/g, ' ').trim(),
-              chartIds: Array.isArray(paragraph?.chartIds) ? paragraph.chartIds.map(String).filter(Boolean) : []
+              chartIds: Array.isArray(paragraph?.chartIds) ? paragraph.chartIds.map(String).filter(Boolean) : [],
+              sourceIds: Array.isArray(paragraph?.sourceIds) ? paragraph.sourceIds.map(String).filter(Boolean) : []
             };
           })
-          .filter((paragraph) => typeof paragraph === 'string' ? Boolean(paragraph) : Boolean(paragraph.text))
+          .filter((paragraph) => Boolean(paragraph.text))
         : []
     }))
     .filter((section) => section.heading || section.paragraphs.length);
@@ -944,7 +971,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
           currentDate,
           freshnessRules: `Use ${currentDate} as the time context. Include an "As of ${currentDate}" framing sentence in the summary or opening body section. Prefer reliable sources from the last 24 months. For fast-moving topics, prioritize 2025-2026 sources. If older data is used, explain why it remains relevant, authoritative, or the latest available.`,
-          bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text and chartIds. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
+          bodyRules: 'Write a substantive article, not a short chart caption. Return 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and include evidence, context, caveats, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text, chartIds, and sourceIds. Put relevant source IDs on every evidence-bearing paragraph. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
           claimRules: 'For claim prompts, extract up to 3 user-made claims. For question/comparison prompts, return up to 3 evidence findings instead of fake claims. Each item must still include claim, verdict, confidenceScore, confidenceLabel, verdictSummary, support, and sourceIds. Use verdict "unsure" when public evidence is insufficient, and explain what was and was not found.',
           chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use delta for two-point before/after or first/last changes. Use ranked_bar for ranked lists, long category labels, and ordered comparisons. Use fact_table for legal criteria, definitions, categorical facts, or single facts. Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           categoryRules: 'Choose the best category from existingCategories whenever one reasonably fits. Reuse exact spelling and capitalization. Create a new category only if the existing list has no good fit.',
@@ -1001,6 +1028,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
             'Resolve neutrality issues without making the article bland.',
             'Remove unsupported claims rather than inventing support.',
             'Keep article text substantial with at least 7 total paragraphs.',
+            'Every paragraph object must include sourceIds. Evidence-bearing paragraphs should include sourceIds for the sources supporting that paragraph.',
             'Keep chart IDs attached only to paragraphs they directly support.',
             'Do not add sources that were not consulted.'
           ],
@@ -1022,6 +1050,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   for (let attempt = 0; attempt <= maxCitationRepairAttempts; attempt += 1) {
     generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
     generatedRaw.keyClaims = repairClaimSourceIds(generatedRaw.keyClaims, generatedRaw.sources);
+    generatedRaw.body = repairParagraphSourceIds(generatedRaw.body, generatedRaw.sources);
     onStage('citation_audit');
     citationAudit = await auditGeneratedArticle({
       reviewModel,
