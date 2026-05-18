@@ -6,7 +6,9 @@ import { CheckCircle2, Loader2, WandSparkles } from 'lucide-react';
 const pipelineStages = [
   { key: 'claim_extraction', label: 'Interpreting prompt' },
   { key: 'research', label: 'Gathering targeted evidence' },
+  { key: 'source_ingestion', label: 'Verifying source text' },
   { key: 'evidence_synthesis', label: 'Ranking sources' },
+  { key: 'counterevidence', label: 'Checking counterevidence' },
   { key: 'drafting', label: 'Writing the first draft' },
   { key: 'review', label: 'Running fact-check and bias review' },
   { key: 'revision', label: 'Revising the article' },
@@ -14,6 +16,29 @@ const pipelineStages = [
   { key: 'citation_repair', label: 'Repairing citation issues' },
   { key: 'saving', label: 'Saving draft' }
 ];
+
+const stageDescriptions = {
+  claim_extraction: 'Breaking your prompt into claims, questions, comparisons, and coverage requirements so the research can target the right evidence.',
+  research: 'Running separate searches for each claim or question, with a preference for primary records, datasets, reports, transcripts, and direct evidence.',
+  source_ingestion: 'Opening candidate source pages, detecting linked PDFs, extracting readable text, and marking sources that could not be independently read.',
+  evidence_synthesis: 'Scoring sources by relevance, authority, recency, specificity, primary-source value, and whether readable text was verified.',
+  counterevidence: 'Looking for opposing evidence, limitations, stale data, missing context, and reasons a skeptical reader might reject the argument.',
+  drafting: 'Writing only from the ranked evidence packet and attaching source buttons to evidence-bearing paragraphs.',
+  review: 'Running a skeptical fact-check and neutrality review for unsupported claims, weak citations, missing counterpoints, and biased wording.',
+  revision: 'Revising the draft to fix review issues, add caveats, improve source support, and remove overclaims.',
+  citation_audit: 'Checking that factual claims and paragraphs are tied to real source records before the draft is saved.',
+  citation_repair: 'Sending weakly supported sections back for repair, or marking claims as uncertain when public evidence is insufficient.',
+  saving: 'Saving the completed draft to your article library.'
+};
+
+function stageBase(stage = '') {
+  if (/^searching_/.test(stage)) return 'research';
+  if (/^ingesting_source_/.test(stage)) return 'source_ingestion';
+  if (/^ranking_/.test(stage)) return 'evidence_synthesis';
+  if (/^checking_counterevidence/.test(stage)) return 'counterevidence';
+  if (/^repair_attempt_/.test(stage)) return 'citation_repair';
+  return stage;
+}
 
 export default function PromptBuilder({ onGenerated }) {
   const [form, setForm] = useState({
@@ -64,12 +89,13 @@ export default function PromptBuilder({ onGenerated }) {
           <div>
             <p className="text-sm font-bold uppercase text-acid">Generation in progress</p>
             <h2 className="mt-2 text-2xl font-black">{job?.stageLabel || 'Building your article'}</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">CiteDrop is checking the claim, gathering sources, drafting, reviewing, revising, and auditing citations before saving your draft.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">{stageDescriptions[stageBase(job?.stage)] || 'CiteDrop is moving this article through the research, verification, writing, and citation workflow.'}</p>
           </div>
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {pipelineStages.map((stage) => {
-            const currentIndex = pipelineStages.findIndex((item) => item.key === job?.stage);
+            const activeStage = stageBase(job?.stage);
+            const currentIndex = pipelineStages.findIndex((item) => item.key === activeStage);
             const stageIndex = pipelineStages.findIndex((item) => item.key === stage.key);
             const isDone = currentIndex > stageIndex;
             const isActive = currentIndex === stageIndex;

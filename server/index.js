@@ -29,7 +29,9 @@ const generationStages = {
   queued: 'Queued',
   claim_extraction: 'Interpreting prompt',
   research: 'Gathering targeted evidence',
+  source_ingestion: 'Verifying source text',
   evidence_synthesis: 'Ranking sources',
+  counterevidence: 'Checking counterevidence',
   drafting: 'Writing the first draft',
   review: 'Running fact-check and bias review',
   revision: 'Revising the article',
@@ -39,6 +41,9 @@ const generationStages = {
   completed: 'Draft ready',
   failed: 'Generation failed'
 };
+const fetchTimeoutMs = 9000;
+const maxHtmlBytes = 900000;
+const maxPdfBytes = 4000000;
 
 app.enable('trust proxy');
 app.use(helmet({
@@ -565,6 +570,155 @@ function buildTargetResearchInput({ input, target, currentDate, existingCategori
   });
 }
 
+function stageLabel(stage, fallback = '') {
+  return generationStages[stage] || fallback || stage.replaceAll('_', ' ');
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = fetchTimeoutMs) {
+  const controller = new globalThis.AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      redirect: 'follow',
+      headers: {
+        'user-agent': 'CiteDropBot/1.0 (+https://www.citedrop.com)',
+        accept: options.accept || 'text/html,application/pdf;q=0.9,*/*;q=0.7'
+      },
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function responseTextLimited(response, maxBytes = maxHtmlBytes) {
+  const text = await response.text();
+  return text.slice(0, maxBytes);
+}
+
+async function responseBufferLimited(response, maxBytes = maxPdfBytes) {
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return buffer.byteLength > maxBytes ? buffer.subarray(0, maxBytes) : buffer;
+}
+
+function htmlToText(html = '') {
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sourceTextExcerpt(text = '') {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 2200);
+}
+
+function absoluteLink(baseUrl, href = '') {
+  try {
+    return new globalThis.URL(href, baseUrl).toString();
+  } catch {
+    return '';
+  }
+}
+
+function findPdfLinks(html = '', baseUrl = '') {
+  const links = [];
+  const linkPattern = /href=["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi;
+  let match;
+  while ((match = linkPattern.exec(html)) && links.length < 3) {
+    const link = absoluteLink(baseUrl, match[1]);
+    if (link && !links.includes(link)) links.push(link);
+  }
+  return links;
+}
+
+async function extractPdfText(buffer) {
+  try {
+    const pdfParse = (await import('pdf-parse')).default;
+    const parsed = await pdfParse(buffer);
+    return parsed.text || '';
+  } catch (error) {
+    console.warn('PDF extraction failed:', error.message);
+    return '';
+  }
+}
+
+async function ingestOneSource(source) {
+  if (!source?.url) return { ...source, verified: false, verificationNote: 'No URL available for source ingestion.' };
+  try {
+    const response = await fetchWithTimeout(source.url);
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok) {
+      return { ...source, verified: false, verificationNote: `Source fetch returned HTTP ${response.status}.` };
+    }
+
+    if (/pdf/i.test(contentType) || /\.pdf(?:$|\?)/i.test(source.url)) {
+      const text = await extractPdfText(await responseBufferLimited(response));
+      return {
+        ...source,
+        verified: Boolean(text),
+        contentType: 'pdf',
+        sourceTextSample: sourceTextExcerpt(text),
+        verificationNote: text ? 'PDF downloaded and text extracted.' : 'PDF downloaded, but text could not be extracted.'
+      };
+    }
+
+    const html = await responseTextLimited(response);
+    const text = htmlToText(html);
+    const pdfLinks = findPdfLinks(html, source.url);
+    let pdfText = '';
+    let pdfUrl = '';
+    for (const link of pdfLinks) {
+      const pdfResponse = await fetchWithTimeout(link, { accept: 'application/pdf,*/*;q=0.7' });
+      if (!pdfResponse.ok) continue;
+      pdfText = await extractPdfText(await responseBufferLimited(pdfResponse));
+      if (pdfText) {
+        pdfUrl = link;
+        break;
+      }
+    }
+
+    return {
+      ...source,
+      verified: Boolean(text || pdfText),
+      contentType: pdfText ? 'html+pdf' : 'html',
+      pdfUrl,
+      sourceTextSample: sourceTextExcerpt(pdfText || text),
+      verificationNote: pdfText
+        ? 'Source page fetched and linked PDF text extracted.'
+        : text
+          ? 'Source page fetched and readable text extracted.'
+          : 'Source page fetched, but no readable text was extracted.'
+    };
+  } catch (error) {
+    return { ...source, verified: false, verificationNote: `Source ingestion failed: ${error.message}` };
+  }
+}
+
+async function ingestSources(sources = [], onStage = () => {}) {
+  const candidates = sources.slice(0, 24);
+  const ingested = [];
+  for (let index = 0; index < candidates.length; index += 1) {
+    const source = candidates[index];
+    onStage(`ingesting_source_${index + 1}`, `Verifying source ${index + 1} of ${candidates.length}: ${source.publisher || sourceDomain(source.url) || 'source'}`);
+    ingested.push(await ingestOneSource(source));
+  }
+  return [
+    ...ingested,
+    ...sources.slice(candidates.length).map((source) => ({
+      ...source,
+      verified: false,
+      verificationNote: 'Not fetched; source limit reached for this generation.'
+    }))
+  ];
+}
+
 function normalizeSources(articleSources = [], responseSources = []) {
   const byUrl = new Map();
   for (const source of articleSources) {
@@ -670,7 +824,7 @@ async function repairArticleCitations({ writingModel, input, claimPlan, existing
           repairRules: [
             'For every unsupported factual claim or unanswered research question, either attach relevant existing source support, remove the claim, soften it, or explicitly state that available public evidence is insufficient to make a determination.',
             'Do not invent new sources, URLs, statistics, quotes, or source metadata.',
-            'Use only the research brief and consulted sources.',
+            'Use only the research brief and consulted sources. Prefer sources with verified readable text or extracted PDF text.',
             'If there is not enough public data, save a useful limited-evidence draft: explain what was found, what was not found, and what evidence would be needed for a stronger determination.',
             'Every paragraph object must include sourceIds. Evidence-bearing paragraphs should include the source IDs that support them. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when possible.',
             'Keep sources only in the sources array. Do not place raw URLs, citation dumps, references sections, or markdown links in body text. Use paragraph sourceIds to connect paragraphs to sources.',
@@ -1001,17 +1155,23 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
 
   onStage('research');
   const targets = researchTargets(input, claimPlan);
-  const targetResearchResponses = await Promise.all(targets.map((target) => openai.responses.create({
-    model: researchModel,
-    tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
-    tool_choice: 'auto',
-    temperature: 0.25,
-    include: ['web_search_call.action.sources'],
-    input: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: buildTargetResearchInput({ input, target, currentDate, existingCategories, claimPlan }) }
-    ]
-  })));
+  const targetResearchResponses = [];
+  for (let index = 0; index < targets.length; index += 1) {
+    const target = targets[index];
+    const stageType = target.type === 'claim' ? 'claim' : target.type === 'question' ? 'question' : 'target';
+    onStage(`searching_${stageType}_${index + 1}`, `Searching ${stageType} ${index + 1} of ${targets.length}: ${target.text.slice(0, 90)}`);
+    targetResearchResponses.push(await openai.responses.create({
+      model: researchModel,
+      tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
+      tool_choice: 'auto',
+      temperature: 0.25,
+      include: ['web_search_call.action.sources'],
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: buildTargetResearchInput({ input, target, currentDate, existingCategories, claimPlan }) }
+      ]
+    }));
+  }
 
   const researchBriefs = targetResearchResponses.map((response, index) => ({
     target: targets[index],
@@ -1019,8 +1179,11 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   }));
   const responseSources = targetResearchResponses.flatMap((response) => response.output?.flatMap((item) => item.action?.sources || []) || []);
   const normalizedConsultedSources = normalizeSources([], responseSources);
+  onStage('source_ingestion');
+  const ingestedSources = await ingestSources(normalizedConsultedSources, onStage);
 
   onStage('evidence_synthesis');
+  onStage('ranking_primary_sources', 'Ranking primary and authoritative sources by relevance, recency, specificity, and authority.');
   const evidencePacket = await openaiJson({
     model: reviewModel,
     schema: evidencePacketJsonSchema,
@@ -1039,9 +1202,11 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           claimPlan,
           targets,
           researchBriefs,
-          consultedSources: normalizedConsultedSources,
+          consultedSources: ingestedSources,
           scoringRules: [
             'Score sources higher when they are primary, specific, recent, authoritative, and directly answer the target.',
+            'Score sources higher when sourceTextSample confirms readable page or PDF text was extracted.',
+            'Score sources lower when verified is false, the page has no readable extracted text, or the source only appears as a search-result citation.',
             'Score broad summaries, generic pages, stale pages, and indirect evidence lower.',
             'Include counterSources or limitations when evidence is mixed, weak, disputed, or not directly responsive.',
             'Do not invent source URLs or source details.'
@@ -1050,6 +1215,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       }
     ]
   });
+  onStage('checking_counterevidence', 'Checking for opposing evidence, limitations, stale data, and missing context before drafting.');
 
   onStage('drafting');
   const draftArticle = await openaiJson({
@@ -1074,7 +1240,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           existingCategories,
           evidencePacket,
           targetedResearch: researchBriefs,
-          consultedSources: normalizedConsultedSources
+          consultedSources: ingestedSources
         })
       }
     ]
@@ -1099,7 +1265,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           claimPlan,
           evidencePacket,
           targetedResearch: researchBriefs,
-          consultedSources: normalizedConsultedSources,
+          consultedSources: ingestedSources,
           draftArticle
         })
       }
@@ -1132,7 +1298,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           existingCategories,
           evidencePacket,
           targetedResearch: researchBriefs,
-          consultedSources: normalizedConsultedSources,
+          consultedSources: ingestedSources,
           draftArticle,
           articleReview,
           requiredShape: articleJsonShape
@@ -1153,7 +1319,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       input,
       claimPlan,
       article: generatedRaw,
-      consultedSources: normalizedConsultedSources
+      consultedSources: ingestedSources
     });
 
     const blockingIssues = Array.isArray(citationAudit.blockingIssues) ? citationAudit.blockingIssues : [];
@@ -1167,7 +1333,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       break;
     }
 
-    onStage('citation_repair');
+    onStage(`repair_attempt_${attempt + 1}`, `Repair attempt ${attempt + 1} of ${maxCitationRepairAttempts}: fixing citation gaps or marking unsupported claims as uncertain.`);
     generatedRaw = await repairArticleCitations({
       writingModel,
       input,
@@ -1175,7 +1341,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       existingCategories,
       currentDate,
       researchBrief: JSON.stringify({ evidencePacket, targetedResearch: researchBriefs }),
-      consultedSources: normalizedConsultedSources,
+      consultedSources: ingestedSources,
       article: generatedRaw,
       citationAudit,
       attempt: attempt + 1
@@ -1375,12 +1541,12 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
   res.status(202).json({ jobId });
 
   try {
-    const setStage = (stage) => {
+    const setStage = (stage, label = '') => {
       generationJobs.set(jobId, {
         ...generationJobs.get(jobId),
         status: 'running',
         stage,
-        stageLabel: generationStages[stage] || generationStages.queued
+        stageLabel: label || stageLabel(stage, generationStages.queued)
       });
     };
     setStage('claim_extraction');
