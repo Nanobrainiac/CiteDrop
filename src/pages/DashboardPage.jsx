@@ -8,6 +8,7 @@ import PromptBuilder from '../components/PromptBuilder.jsx';
 import DonateButton from '../components/DonateButton.jsx';
 import SectionTabs from '../components/SectionTabs.jsx';
 import { getArticles } from '../lib/api.js';
+import { useAuth } from '../state/AuthContext.jsx';
 
 const dashboardTabs = [
   { label: 'Create', href: '#create' },
@@ -17,6 +18,7 @@ const pageSize = 10;
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [generated, setGenerated] = useState(null);
   const [articles, setArticles] = useState([]);
   const [page, setPage] = useState(1);
@@ -52,7 +54,7 @@ export default function DashboardPage() {
       <div id="create" className="mb-6 scroll-mt-24">
         <p className="text-sm font-bold uppercase text-acid">Generator</p>
         <h1 className="mt-2 text-4xl font-black">Build a shareable research article</h1>
-        <p className="mt-3 max-w-3xl text-white/60">Create a shareable AI-powered article with research, graphs, and visual explanations in seconds.</p>
+        <p className="mt-3 max-w-3xl text-white/60">{user ? 'Create a shareable AI-powered article with research, graphs, and visual explanations.' : 'Try one free research article before signing up. Create a free account to keep generating, save drafts, and publish articles.'}</p>
         <div className="mt-5">
           <DonateButton />
         </div>

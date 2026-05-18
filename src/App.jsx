@@ -24,11 +24,9 @@ export default function App() {
         <Route
           path="/dashboard"
           element={(
-            <ClerkFrame>
-              <AuthGuard>
-                <DashboardPage />
-              </AuthGuard>
-            </ClerkFrame>
+            <PublicFrame>
+              <DashboardPage />
+            </PublicFrame>
           )}
         />
         <Route

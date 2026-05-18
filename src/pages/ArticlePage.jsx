@@ -8,6 +8,7 @@ import SectionTabs from '../components/SectionTabs.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticle, updateArticle } from '../lib/api.js';
 import { trackEvent } from '../lib/analytics.js';
+import { useAuth } from '../state/AuthContext.jsx';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
 
@@ -15,6 +16,7 @@ const ChartRenderer = lazy(() => import('../components/ChartRenderer.jsx'));
 
 export default function ArticlePage() {
   const { slug } = useParams();
+  const { user } = useAuth();
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -165,9 +167,15 @@ export default function ArticlePage() {
               <div className="mt-8">
                 <div className="glass-panel rounded-lg p-4">
                   <p className="text-sm font-semibold text-white/60">This article is still a draft. Publish it before sharing a public link.</p>
-                  <button disabled={publishing} onClick={publishArticle} className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
-                    <Send size={18} /> {publishing ? 'Publishing...' : 'Publish article'}
-                  </button>
+                  {user ? (
+                    <button disabled={publishing} onClick={publishArticle} className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
+                      <Send size={18} /> {publishing ? 'Publishing...' : 'Publish article'}
+                    </button>
+                  ) : (
+                    <Link to="/login?mode=sign-up" className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
+                      Create a free account to publish
+                    </Link>
+                  )}
                   {publishError ? <p className="mt-3 rounded-md border border-ember/40 bg-ember/10 p-3 text-sm text-red-100">{publishError}</p> : null}
                 </div>
               </div>

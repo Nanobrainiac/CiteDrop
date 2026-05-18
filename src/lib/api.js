@@ -1,7 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 let authTokenGetter = null;
 const generationPollInterval = 2500;
-const generationTimeout = 600000;
+const generationTimeout = 900000;
 
 export function setAuthTokenGetter(getter) {
   authTokenGetter = getter;
@@ -18,7 +18,7 @@ async function request(path, options = {}) {
     ...(await authHeaders()),
     ...options.headers
   };
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options, headers });
   if (!response.ok) {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {

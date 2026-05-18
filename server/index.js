@@ -44,6 +44,9 @@ const generationStages = {
 const fetchTimeoutMs = 9000;
 const maxHtmlBytes = 900000;
 const maxPdfBytes = 4000000;
+const anonymousGenerationLimit = Number(process.env.ANON_GENERATION_LIMIT || 1);
+const anonymousGenerationWindowMs = 24 * 60 * 60 * 1000;
+const anonymousGenerationUsage = new Map();
 
 app.enable('trust proxy');
 app.use(helmet({
@@ -361,6 +364,70 @@ function absoluteUrl(req, pathname) {
   if (configured) return `${configured}${pathname}`;
   const protocol = req.get('x-forwarded-proto') || req.protocol;
   return `${protocol}://${req.get('host')}${pathname}`;
+}
+
+function parseCookies(req) {
+  return Object.fromEntries(
+    String(req.headers.cookie || '')
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf('=');
+        if (index === -1) return [part, ''];
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+}
+
+function anonymousTokenFromRequest(req, res) {
+  const cookies = parseCookies(req);
+  const existing = cookies.cd_anon_id;
+  if (existing && /^[a-f0-9-]{24,}$/i.test(existing)) return existing;
+  const token = randomUUID();
+  res.cookie('cd_anon_id', token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction,
+    maxAge: 1000 * 60 * 60 * 24 * 90
+  });
+  return token;
+}
+
+function anonymousUsageKey(req, token) {
+  return `${token}:${req.ip || req.get('x-forwarded-for') || 'unknown'}`;
+}
+
+function anonymousUsage(req, token) {
+  const key = anonymousUsageKey(req, token);
+  const now = Date.now();
+  const usage = anonymousGenerationUsage.get(key);
+  if (!usage || now - usage.startedAt > anonymousGenerationWindowMs) {
+    return { key, count: 0, startedAt: now };
+  }
+  return { key, ...usage };
+}
+
+function recordAnonymousGeneration(req, token) {
+  const usage = anonymousUsage(req, token);
+  anonymousGenerationUsage.set(usage.key, {
+    count: usage.count + 1,
+    startedAt: usage.startedAt
+  });
+  return usage.count + 1;
+}
+
+async function claimAnonymousArticles(req, res, user) {
+  if (!user?.id) return;
+  const token = parseCookies(req).cd_anon_id;
+  if (!token) return;
+  await query(
+    `update articles
+     set created_by = $1, updated_at = now()
+     where created_by = $2`,
+    [user.id, `anonymous:${token}`]
+  );
+  res.clearCookie('cd_anon_id', { sameSite: 'lax', secure: isProduction });
 }
 
 async function findPublishedArticleBySlug(slug) {
@@ -1562,7 +1629,7 @@ app.patch('/api/roles/:clerkUserId', requireDatabase, requireUser, requireAdmin,
   }
 });
 
-app.post('/api/generate-article', requireDatabase, requireUser, async (req, res) => {
+app.post('/api/generate-article', requireDatabase, async (req, res) => {
   if (!openai) {
     res.status(503).json({ error: 'OpenAI is not configured. Set OPENAI_API_KEY.' });
     return;
@@ -1574,10 +1641,23 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
     return;
   }
 
+  const user = await getUserFromRequest(req);
+  if (user) await claimAnonymousArticles(req, res, user);
+  const anonymousToken = user ? '' : anonymousTokenFromRequest(req, res);
+  if (!user) {
+    const usage = anonymousUsage(req, anonymousToken);
+    if (usage.count >= anonymousGenerationLimit) {
+      res.status(403).json({ error: 'Create a free account to keep generating and save your articles.' });
+      return;
+    }
+  }
+
+  const ownerId = user?.id || `anonymous:${anonymousToken}`;
   const jobId = randomUUID();
   generationJobs.set(jobId, {
     id: jobId,
-    userId: req.user.id,
+    userId: ownerId,
+    anonymousToken,
     status: 'queued',
     stage: 'queued',
     stageLabel: generationStages.queued,
@@ -1597,7 +1677,8 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
       });
     };
     setStage('claim_extraction');
-    const article = await performArticleGeneration(parsed.data, req.user.id, setStage);
+    const article = await performArticleGeneration(parsed.data, ownerId, setStage);
+    if (!user) recordAnonymousGeneration(req, anonymousToken);
     generationJobs.set(jobId, {
       ...generationJobs.get(jobId),
       status: 'completed',
@@ -1617,9 +1698,12 @@ app.post('/api/generate-article', requireDatabase, requireUser, async (req, res)
   }
 });
 
-app.get('/api/generation-jobs/:id', requireDatabase, requireUser, (req, res) => {
+app.get('/api/generation-jobs/:id', requireDatabase, async (req, res) => {
   const job = generationJobs.get(req.params.id);
-  if (!job || job.userId !== req.user.id) {
+  const user = await getUserFromRequest(req);
+  const anonymousToken = anonymousTokenFromRequest(req, res);
+  const canView = user?.id === job?.userId || (!user && job?.anonymousToken === anonymousToken);
+  if (!job || !canView) {
     res.status(404).json({ error: 'Generation job not found.' });
     return;
   }
@@ -1633,8 +1717,11 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
   const search = String(req.query.search || '').trim();
   const category = String(req.query.category || '').trim();
   const user = await getUserFromRequest(req);
-  const includeDrafts = req.query.includeDrafts === 'true' && Boolean(user);
-  const ownOnly = includeDrafts && (req.query.mine === 'true' || user?.role !== 'admin' || req.query.scope !== 'all');
+  if (user) await claimAnonymousArticles(req, res, user);
+  const anonymousToken = anonymousTokenFromRequest(req, res);
+  const anonymousOwner = `anonymous:${anonymousToken}`;
+  const includeDrafts = req.query.includeDrafts === 'true' && Boolean(user || anonymousToken);
+  const ownOnly = includeDrafts && (!user || req.query.mine === 'true' || user?.role !== 'admin' || req.query.scope !== 'all');
 
   const visibilityFilters = [];
   const visibilityValues = [];
@@ -1642,7 +1729,7 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
     visibilityValues.push('published');
     visibilityFilters.push(`status = $${visibilityValues.length}`);
   } else if (ownOnly) {
-    visibilityValues.push(user.id);
+    visibilityValues.push(user?.id || anonymousOwner);
     visibilityFilters.push(`created_by = $${visibilityValues.length}`);
     visibilityFilters.push(`status <> 'deleted'`);
   }
@@ -1685,10 +1772,15 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
 
 app.get('/api/articles/:slug', requireDatabase, async (req, res) => {
   const user = await getUserFromRequest(req);
+  const anonymousToken = anonymousTokenFromRequest(req, res);
+  const anonymousOwner = `anonymous:${anonymousToken}`;
   try {
     const { rows } = await query('select * from articles where slug = $1 limit 1', [req.params.slug]);
     const article = rows[0];
-    const canPreviewDraft = user && article?.status !== 'deleted' && (user.role === 'admin' || article?.created_by === user.id);
+    const canPreviewDraft = article?.status !== 'deleted' && (
+      (user && (user.role === 'admin' || article?.created_by === user.id)) ||
+      (!user && article?.created_by === anonymousOwner)
+    );
     const canViewDeleted = user?.role === 'admin' && article?.status === 'deleted';
     if (!article || (article.status !== 'published' && !canPreviewDraft && !canViewDeleted)) {
       res.status(404).json({ error: 'Article not found.' });
