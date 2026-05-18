@@ -5,7 +5,8 @@ import { CheckCircle2, Loader2, WandSparkles } from 'lucide-react';
 
 const pipelineStages = [
   { key: 'claim_extraction', label: 'Interpreting prompt' },
-  { key: 'research', label: 'Gathering sources' },
+  { key: 'research', label: 'Gathering targeted evidence' },
+  { key: 'evidence_synthesis', label: 'Ranking sources' },
   { key: 'drafting', label: 'Writing the first draft' },
   { key: 'review', label: 'Running fact-check and bias review' },
   { key: 'revision', label: 'Revising the article' },

@@ -28,7 +28,8 @@ const generationJobs = new Map();
 const generationStages = {
   queued: 'Queued',
   claim_extraction: 'Interpreting prompt',
-  research: 'Gathering sources',
+  research: 'Gathering targeted evidence',
+  evidence_synthesis: 'Ranking sources',
   drafting: 'Writing the first draft',
   review: 'Running fact-check and bias review',
   revision: 'Revising the article',
@@ -94,7 +95,7 @@ Rules:
 - Prefer sources from the last 24 months when reliable sources are available.
 - For fast-moving topics such as politics, technology, war, markets, law, elections, public figures, companies, or current policy, prioritize sources from 2025-2026.
 - If older data is used, explain why it is still relevant, authoritative, or the latest available.
-- Use at least 4 source items when available. Do not use a publisher homepage as a source unless the homepage itself is the evidence.
+- Use at least 6 source items when available, and more when the topic is contested, comparative, statistical, or current. Do not use a publisher homepage as a source unless the homepage itself is the evidence.
 - Sources must be specific pages, reports, datasets, court records, government pages, speeches, press releases, articles, or studies.
 - Do not fabricate citations, statistics, institutions, authors, URLs, titles, or publication details.
 - If a requested coverage point cannot be supported by sources, include it as a limitation instead of skipping or inventing facts.
@@ -216,6 +217,66 @@ const citationAuditJsonSchema = {
       passed: { type: 'boolean' },
       blockingIssues: { type: 'array', items: { type: 'string' } },
       warnings: { type: 'array', items: { type: 'string' } }
+    }
+  },
+  strict: true
+};
+
+const evidencePacketJsonSchema = {
+  name: 'evidence_packet',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['promptSummary', 'targets', 'globalLimitations'],
+    properties: {
+      promptSummary: { type: 'string' },
+      globalLimitations: { type: 'array', items: { type: 'string' } },
+      targets: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['target', 'targetType', 'answerSummary', 'confidenceLabel', 'keyFacts', 'bestSources', 'counterSources', 'limitations'],
+          properties: {
+            target: { type: 'string' },
+            targetType: { type: 'string', enum: ['claim', 'question', 'comparison', 'coverage'] },
+            answerSummary: { type: 'string' },
+            confidenceLabel: { type: 'string', enum: ['high', 'medium', 'low'] },
+            keyFacts: { type: 'array', items: { type: 'string' } },
+            bestSources: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['title', 'publisher', 'url', 'role', 'score', 'reason'],
+                properties: {
+                  title: { type: 'string' },
+                  publisher: { type: 'string' },
+                  url: { type: 'string' },
+                  role: { type: 'string', enum: ['supports', 'contradicts', 'context', 'data'] },
+                  score: { type: 'number', minimum: 0, maximum: 100 },
+                  reason: { type: 'string' }
+                }
+              }
+            },
+            counterSources: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['title', 'publisher', 'url', 'reason'],
+                properties: {
+                  title: { type: 'string' },
+                  publisher: { type: 'string' },
+                  url: { type: 'string' },
+                  reason: { type: 'string' }
+                }
+              }
+            },
+            limitations: { type: 'array', items: { type: 'string' } }
+          }
+        }
+      }
     }
   },
   strict: true
@@ -444,57 +505,6 @@ async function injectHomeMeta(html, req) {
     .replace('</head>', `${meta}\n    ${dataScript}\n  </head>`);
 }
 
-function buildGenerationInput(input, existingCategories = [], claimPlan = null) {
-  const currentDate = currentDateString();
-  return JSON.stringify({
-    task: 'Research the user question using web search and return a source-grounded research brief.',
-    userQuestion: input.prompt,
-    requestedTone: input.tone,
-    currentDate,
-    existingCategories,
-    promptType: claimPlan?.promptType || 'mixed',
-    answerMode: claimPlan?.answerMode || 'fact_check',
-    expectedVerdictStyle: claimPlan?.expectedVerdictStyle || 'claim_verdict',
-    extractedClaims: claimPlan?.claims || [],
-    coverageRequirements: claimPlan?.coverageRequirements || [],
-    researchQuestions: claimPlan?.researchQuestions || [],
-    inferenceRequirements: [
-      'If the user asked a question rather than making a claim, answer the research question directly instead of forcing a true/false verdict.',
-      'If the available public evidence is limited, create a limited-evidence draft explaining what was found, what was not found, and what would be needed for a stronger determination.',
-      'Infer the best category from the question. Prefer an existing category if it reasonably fits.',
-      'Only create a new category if none of the existingCategories fit the article topic.',
-      'Infer the useful chart count and chart types from the evidence.',
-      'Do not use an intended position unless the user clearly asks for a one-sided argument. Prefer evidence-led framing.'
-    ],
-    sourceQualityRequirements: [
-      'Search for and use multiple specific source pages.',
-      `Use ${currentDate} as the current date for freshness decisions and "as of" framing.`,
-      'Prefer reliable sources from the last 24 months when available.',
-      'For fast-moving topics, prioritize sources from 2025-2026.',
-      'If older data is used, explain whether it is the latest available, authoritative historical context, or still relevant despite age.',
-      'Do not cite generic homepages when a specific article/report/page is needed.',
-      'Before writing, identify the core coverage requirements in the user prompt and ensure each is addressed explicitly.',
-      'Extract up to 3 concrete claims only when the user actually makes claims. For questions, produce evidence findings tied to the research questions.',
-      'If the prompt asks for first and second terms, cover first and second terms in separate sections or a direct comparison.',
-      'Every key claim must identify source support or uncertainty.',
-      'The final article should have 3 to 6 body sections and at least 7 total paragraphs. Most paragraphs should be 90 to 160 words and should provide evidence, context, caveats, and interpretation.',
-      'Not every paragraph should have a chart. Charts are supporting evidence, not the article structure.',
-      'Return 2 to 4 useful visualizations. Prefer one timeline when the topic has important dated events, one comparison when comparable data exists, one evidence/claim support scorecard, and one source mix or argument coverage chart when useful.',
-      'Every visualization must correspond to article text. Do not return a visualization unless the article body includes a paragraph whose chartIds references that visualization id.',
-      'Use line or area only for a continuous metric with 3 or more comparable time points.',
-      'Use delta instead of line or area for two-point before/after, first/last, or changed-from-to comparisons.',
-      'Use ranked_bar for ranked lists, long category labels, and ordered comparisons.',
-      'Use fact_table for legal criteria, definitions, categorical facts, and single facts that should not be forced into a chart.',
-      'Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage.',
-      'Use timeline for sequences of events, metrics for standalone facts or mixed units, comparison for side-by-side estimates or categories, and scorecard for qualitative evidence maps.',
-      'Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates.',
-      'Do not use zero as a placeholder for unavailable data.',
-      'If no sourced numerical dataset is found, return qualitative evidence maps with labels and numeric scores, and clearly mark them as qualitative.'
-    ],
-    sourceUrls: input.sourceUrls
-  });
-}
-
 async function openaiJson({ model, schema, temperature = 0.2, input }) {
   const response = await openai.responses.create({
     model,
@@ -508,6 +518,51 @@ async function openaiJson({ model, schema, temperature = 0.2, input }) {
     input
   });
   return JSON.parse(response.output_text || '{}');
+}
+
+function researchTargets(input, claimPlan) {
+  const targets = [];
+  for (const claim of claimPlan?.claims || []) {
+    if (claim?.claim) targets.push({ type: 'claim', text: claim.claim, notes: claim.notes || '' });
+  }
+  for (const question of claimPlan?.researchQuestions || []) {
+    if (question) targets.push({ type: 'question', text: question, notes: '' });
+  }
+  for (const requirement of claimPlan?.coverageRequirements || []) {
+    if (requirement && targets.length < 5) targets.push({ type: 'coverage', text: requirement, notes: '' });
+  }
+  if (!targets.length) targets.push({ type: 'question', text: input.prompt, notes: '' });
+
+  const seen = new Set();
+  return targets
+    .filter((target) => {
+      const key = target.text.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5);
+}
+
+function buildTargetResearchInput({ input, target, currentDate, existingCategories, claimPlan }) {
+  return JSON.stringify({
+    task: 'Gather a defensible evidence packet for this single target. Search broadly enough to find primary sources, opposing/contextual evidence, and recent updates. Return a concise source-grounded research brief; do not draft the article.',
+    userPrompt: input.prompt,
+    target,
+    currentDate,
+    existingCategories,
+    promptInterpretation: claimPlan,
+    searchRequirements: [
+      'Run targeted searches for primary/authoritative sources, not just general summaries.',
+      'Prefer government records, official reports, datasets, court records, regulator filings, direct transcripts, peer-reviewed work, reputable news with direct reporting, and original documents.',
+      'Look for evidence that supports, contradicts, qualifies, or limits the target.',
+      'Prioritize specific pages over homepages and avoid low-quality SEO pages.',
+      'For fast-moving topics, prioritize 2025-2026 and the last 24 months, while using older sources only for historical context or latest-available data.',
+      'Identify exact statistics, dates, definitions, and caveats that are safe to use.',
+      'If the exact target cannot be verified, explain what public evidence does and does not show.'
+    ],
+    sourceUrls: input.sourceUrls
+  });
 }
 
 function normalizeSources(articleSources = [], responseSources = []) {
@@ -945,19 +1000,57 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   });
 
   onStage('research');
-  const researchResponse = await openai.responses.create({
+  const targets = researchTargets(input, claimPlan);
+  const targetResearchResponses = await Promise.all(targets.map((target) => openai.responses.create({
     model: researchModel,
     tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
     tool_choice: 'auto',
-    temperature: 0.35,
+    temperature: 0.25,
     include: ['web_search_call.action.sources'],
     input: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: buildGenerationInput(input, existingCategories, claimPlan) }
+      { role: 'user', content: buildTargetResearchInput({ input, target, currentDate, existingCategories, claimPlan }) }
+    ]
+  })));
+
+  const researchBriefs = targetResearchResponses.map((response, index) => ({
+    target: targets[index],
+    brief: response.output_text
+  }));
+  const responseSources = targetResearchResponses.flatMap((response) => response.output?.flatMap((item) => item.action?.sources || []) || []);
+  const normalizedConsultedSources = normalizeSources([], responseSources);
+
+  onStage('evidence_synthesis');
+  const evidencePacket = await openaiJson({
+    model: reviewModel,
+    schema: evidencePacketJsonSchema,
+    temperature: 0.1,
+    input: [
+      {
+        role: 'system',
+        content: 'Build a source-ranked evidence packet. Do not draft prose. Be skeptical, prefer primary sources, include opposing/limiting evidence, and clearly flag insufficient public data.'
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Synthesize targeted research into a defensible evidence packet for article drafting.',
+          currentDate,
+          originalRequest: input,
+          claimPlan,
+          targets,
+          researchBriefs,
+          consultedSources: normalizedConsultedSources,
+          scoringRules: [
+            'Score sources higher when they are primary, specific, recent, authoritative, and directly answer the target.',
+            'Score broad summaries, generic pages, stale pages, and indirect evidence lower.',
+            'Include counterSources or limitations when evidence is mixed, weak, disputed, or not directly responsive.',
+            'Do not invent source URLs or source details.'
+          ]
+        })
+      }
     ]
   });
 
-  const responseSources = researchResponse.output?.flatMap((item) => item.action?.sources || []) || [];
   onStage('drafting');
   const draftArticle = await openaiJson({
     model: writingModel,
@@ -968,7 +1061,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       {
         role: 'user',
         content: JSON.stringify({
-          task: 'Convert this source-grounded research brief into the required article JSON. Use only facts supported by the research brief and listed sources. Preserve all requested coverage requirements.',
+          task: 'Convert the source-ranked evidence packet into the required article JSON. Use only facts supported by the evidence packet, targeted research briefs, and listed sources. Preserve all requested coverage requirements.',
           currentDate,
           freshnessRules: `Use ${currentDate} as the time context. Include an "As of ${currentDate}" framing sentence in the summary or opening body section. Prefer reliable sources from the last 24 months. For fast-moving topics, prioritize 2025-2026 sources. If older data is used, explain why it remains relevant, authoritative, or the latest available.`,
           bodyRules: 'Write a substantive article, not a short chart caption. Return 4 to 7 body sections and at least 10 total paragraphs. Most paragraphs should be 120 to 190 words and include evidence, context, caveats, counterpoints, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text, chartIds, and sourceIds. Put relevant source IDs on every evidence-bearing paragraph. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when multiple relevant sources exist. Add sourceIds to conclusion paragraphs when they restate factual judgments. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
@@ -979,8 +1072,9 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           originalRequest: input,
           claimPlan,
           existingCategories,
-          researchBrief: researchResponse.output_text,
-          consultedSources: responseSources
+          evidencePacket,
+          targetedResearch: researchBriefs,
+          consultedSources: normalizedConsultedSources
         })
       }
     ]
@@ -1003,8 +1097,9 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           currentDate,
           originalRequest: input,
           claimPlan,
-          researchBrief: researchResponse.output_text,
-          consultedSources: responseSources,
+          evidencePacket,
+          targetedResearch: researchBriefs,
+          consultedSources: normalizedConsultedSources,
           draftArticle
         })
       }
@@ -1035,8 +1130,9 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           originalRequest: input,
           claimPlan,
           existingCategories,
-          researchBrief: researchResponse.output_text,
-          consultedSources: responseSources,
+          evidencePacket,
+          targetedResearch: researchBriefs,
+          consultedSources: normalizedConsultedSources,
           draftArticle,
           articleReview,
           requiredShape: articleJsonShape
@@ -1057,7 +1153,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       input,
       claimPlan,
       article: generatedRaw,
-      consultedSources: responseSources
+      consultedSources: normalizedConsultedSources
     });
 
     const blockingIssues = Array.isArray(citationAudit.blockingIssues) ? citationAudit.blockingIssues : [];
@@ -1078,8 +1174,8 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
       claimPlan,
       existingCategories,
       currentDate,
-      researchBrief: researchResponse.output_text,
-      consultedSources: responseSources,
+      researchBrief: JSON.stringify({ evidencePacket, targetedResearch: researchBriefs }),
+      consultedSources: normalizedConsultedSources,
       article: generatedRaw,
       citationAudit,
       attempt: attempt + 1
