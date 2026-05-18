@@ -562,7 +562,7 @@ async function homeSnapshotData(limit = 9) {
 }
 
 async function injectHomeMeta(html, req) {
-  const imageUrl = absoluteUrl(req, '/og-home.png');
+  const imageUrl = absoluteUrl(req, '/og-home-2026-05-17.png');
   const siteUrl = absoluteUrl(req, '/');
   const meta = `
     <meta property="og:url" content="${escapeHtml(siteUrl)}" />
@@ -1571,8 +1571,8 @@ app.get('/fb-health', (_req, res) => {
     <meta property="og:title" content="CiteDrop Facebook Health Check" />
     <meta property="og:description" content="Static crawler health check for CiteDrop." />
     <meta property="og:url" content="https://www.citedrop.com/fb-health" />
-    <meta property="og:image" content="https://www.citedrop.com/og-home.png" />
-    <meta property="og:image:secure_url" content="https://www.citedrop.com/og-home.png" />
+    <meta property="og:image" content="https://www.citedrop.com/og-home-2026-05-17.png" />
+    <meta property="og:image:secure_url" content="https://www.citedrop.com/og-home-2026-05-17.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
