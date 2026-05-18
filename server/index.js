@@ -417,6 +417,25 @@ function recordAnonymousGeneration(req, token) {
   return usage.count + 1;
 }
 
+function releaseAnonymousGeneration(req, token) {
+  const usage = anonymousUsage(req, token);
+  anonymousGenerationUsage.set(usage.key, {
+    count: Math.max(usage.count - 1, 0),
+    startedAt: usage.startedAt
+  });
+}
+
+async function anonymousArticleCount(token) {
+  const { rows } = await query(
+    `select count(*)::int as count
+     from articles
+     where created_by = $1
+       and coalesce(status, 'draft') <> 'deleted'`,
+    [`anonymous:${token}`]
+  );
+  return rows[0]?.count || 0;
+}
+
 async function claimAnonymousArticles(req, res, user) {
   if (!user?.id) return;
   const token = parseCookies(req).cd_anon_id;
@@ -1644,12 +1663,16 @@ app.post('/api/generate-article', requireDatabase, async (req, res) => {
   const user = await getUserFromRequest(req);
   if (user) await claimAnonymousArticles(req, res, user);
   const anonymousToken = user ? '' : anonymousTokenFromRequest(req, res);
+  let reservedAnonymousGeneration = false;
   if (!user) {
     const usage = anonymousUsage(req, anonymousToken);
-    if (usage.count >= anonymousGenerationLimit) {
+    const savedAnonymousArticles = await anonymousArticleCount(anonymousToken);
+    if (Math.max(usage.count, savedAnonymousArticles) >= anonymousGenerationLimit) {
       res.status(403).json({ error: 'Create a free account to keep generating and save your articles.' });
       return;
     }
+    recordAnonymousGeneration(req, anonymousToken);
+    reservedAnonymousGeneration = true;
   }
 
   const ownerId = user?.id || `anonymous:${anonymousToken}`;
@@ -1678,7 +1701,6 @@ app.post('/api/generate-article', requireDatabase, async (req, res) => {
     };
     setStage('claim_extraction');
     const article = await performArticleGeneration(parsed.data, ownerId, setStage);
-    if (!user) recordAnonymousGeneration(req, anonymousToken);
     generationJobs.set(jobId, {
       ...generationJobs.get(jobId),
       status: 'completed',
@@ -1687,6 +1709,7 @@ app.post('/api/generate-article', requireDatabase, async (req, res) => {
       article
     });
   } catch (error) {
+    if (reservedAnonymousGeneration) releaseAnonymousGeneration(req, anonymousToken);
     console.error(error);
     generationJobs.set(jobId, {
       ...generationJobs.get(jobId),
