@@ -129,19 +129,23 @@ export default function ArticlePage() {
 
   return (
     <article>
-      <header className="border-b border-white/10">
-        <div className="mx-auto grid max-w-7xl gap-6 overflow-x-hidden px-3 py-10 sm:px-6 sm:py-12 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
+      <header className="border-b border-white/10 bg-black/20">
+        <div className="mx-auto grid max-w-7xl gap-6 overflow-x-hidden px-3 py-8 sm:px-6 sm:py-10 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3 text-sm text-white/48">
-              <span className="rounded-full bg-acid px-3 py-1 font-black uppercase text-ink">{article.category}</span>
-              <span>{formatDate(article.created_at)}</span>
-              <span>{article.status}</span>
+            <div className="border-l-4 border-acid pl-4">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-acid">CiteDrop Research Article</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-white/48">
+                <span className="rounded-full bg-acid px-3 py-1 font-black uppercase text-ink">{article.category}</span>
+                <span>{formatDate(article.created_at)}</span>
+                <span className="uppercase">{article.status}</span>
+                <span>{sources.length} sources</span>
+              </div>
             </div>
-            <h1 className="mt-6 max-w-4xl break-words text-4xl font-black leading-none sm:text-6xl">{article.title}</h1>
-            {article.subtitle ? <p className="mt-5 max-w-3xl break-words text-lg leading-8 text-white/62 sm:text-xl">{article.subtitle}</p> : null}
-            <div id="summary" className="mt-6 max-w-3xl scroll-mt-20 rounded-lg border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-sm uppercase text-white/45">Summary</p>
-              <p className="mt-3 text-base leading-7 text-white/72">{article.summary}</p>
+            <h1 className="mt-6 max-w-4xl break-words border-b border-white/10 pb-5 text-4xl font-black leading-[1.03] sm:text-6xl">{article.title}</h1>
+            {article.subtitle ? <p className="mt-5 max-w-3xl break-words text-xl font-semibold leading-8 text-white/75">{article.subtitle}</p> : null}
+            <div id="summary" className="mt-6 max-w-3xl scroll-mt-20">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-white/42">Brief Summary</p>
+              <p className="mt-3 border-l border-white/15 pl-4 text-base leading-7 text-white/68">{article.summary}</p>
             </div>
             {article.status === 'published' ? (
               <div className="mt-8">
