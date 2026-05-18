@@ -4,6 +4,7 @@ import { ArrowRight, Copy, ExternalLink, Send, Share2, X } from 'lucide-react';
 import ClaimList from '../components/ClaimList.jsx';
 import EvidenceScorePanel from '../components/EvidenceScorePanel.jsx';
 import LoadingState from '../components/LoadingState.jsx';
+import RegisterToPublishModal from '../components/RegisterToPublishModal.jsx';
 import SectionTabs from '../components/SectionTabs.jsx';
 import { demoArticles } from '../data/demoArticles.js';
 import { getArticle, updateArticle } from '../lib/api.js';
@@ -24,6 +25,7 @@ export default function ArticlePage() {
   const [publishing, setPublishing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
+  const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -108,6 +110,10 @@ export default function ArticlePage() {
   }
 
   async function publishArticle() {
+    if (!user) {
+      setShowRegisterPrompt(true);
+      return;
+    }
     setPublishing(true);
     setPublishError('');
     try {
@@ -167,15 +173,9 @@ export default function ArticlePage() {
               <div className="mt-8">
                 <div className="glass-panel rounded-lg p-4">
                   <p className="text-sm font-semibold text-white/60">This article is still a draft. Publish it before sharing a public link.</p>
-                  {user ? (
-                    <button disabled={publishing} onClick={publishArticle} className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
-                      <Send size={18} /> {publishing ? 'Publishing...' : 'Publish article'}
-                    </button>
-                  ) : (
-                    <Link to="/login?mode=sign-up" className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white">
-                      Create a free account to publish
-                    </Link>
-                  )}
+                  <button disabled={publishing} onClick={publishArticle} className="mt-4 inline-flex items-center gap-2 rounded-full bg-acid px-5 py-3 font-black text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
+                    <Send size={18} /> {publishing ? 'Publishing...' : 'Publish article'}
+                  </button>
                   {publishError ? <p className="mt-3 rounded-md border border-ember/40 bg-ember/10 p-3 text-sm text-red-100">{publishError}</p> : null}
                 </div>
               </div>
@@ -240,6 +240,7 @@ export default function ArticlePage() {
         </div>
       </div>
       <SourceModal source={selectedSource} onClose={() => setSelectedSource(null)} />
+      <RegisterToPublishModal open={showRegisterPrompt} onClose={() => setShowRegisterPrompt(false)} />
     </article>
   );
 }

@@ -39,7 +39,12 @@ export default function Layout({ children }) {
                 ) : null}
               </>
             ) : (
-              <NavLink className="rounded-full bg-acid px-4 py-2 text-sm font-bold text-ink hover:bg-white" to="/login">Log in</NavLink>
+              <>
+                <NavLink className="inline-flex shrink-0 rounded-full px-2.5 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white sm:px-3" to="/dashboard">
+                  <PenLine className="mr-1 h-4 w-4 sm:mr-2" /> Create
+                </NavLink>
+                <NavLink className="rounded-full bg-acid px-4 py-2 text-sm font-bold text-ink hover:bg-white" to="/login">Log in</NavLink>
+              </>
             )}
           </div>
         </nav>

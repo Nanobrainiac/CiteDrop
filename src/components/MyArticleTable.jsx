@@ -1,13 +1,23 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Copy, Eye, Send, Trash2, Undo2 } from 'lucide-react';
+import RegisterToPublishModal from './RegisterToPublishModal.jsx';
 import { deleteArticle, updateArticle } from '../lib/api.js';
 import { trackEvent } from '../lib/analytics.js';
+import { useAuth } from '../state/AuthContext.jsx';
 import { formatDate } from '../utils/format.js';
 import { articleUrl } from '../utils/links.js';
 
 export default function MyArticleTable({ articles, onChange }) {
+  const { user } = useAuth();
+  const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
+
   async function togglePublished(article) {
     const nextStatus = article.status === 'published' ? 'draft' : 'published';
+    if (nextStatus === 'published' && !user) {
+      setShowRegisterPrompt(true);
+      return;
+    }
     await updateArticle(article.id, { status: nextStatus });
     if (nextStatus === 'published') {
       trackEvent('article_published', {
@@ -37,6 +47,7 @@ export default function MyArticleTable({ articles, onChange }) {
   }
 
   return (
+    <>
     <div className="overflow-hidden rounded-lg border border-white/10">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-white/10 bg-panel/80 text-sm">
@@ -78,5 +89,7 @@ export default function MyArticleTable({ articles, onChange }) {
         </table>
       </div>
     </div>
+    <RegisterToPublishModal open={showRegisterPrompt} onClose={() => setShowRegisterPrompt(false)} />
+    </>
   );
 }
