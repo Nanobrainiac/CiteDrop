@@ -57,6 +57,7 @@ app.use(cors({ origin: isProduction ? false : true }));
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(isProduction ? 'combined' : 'dev'));
+app.use(redirectToCanonicalUrl);
 if (process.env.CLERK_SECRET_KEY && clerkPublishableKey) {
   const clerk = clerkMiddleware({
     secretKey: process.env.CLERK_SECRET_KEY,
@@ -359,11 +360,71 @@ function stripMetaTags(html, selectors) {
   }, html);
 }
 
-function absoluteUrl(req, pathname) {
+function stripCanonicalLinks(html) {
+  return html.replace(/\s*<link\s+rel=["']canonical["'][^>]*\/?>/gi, '');
+}
+
+function canonicalSiteBase(req) {
   const configured = process.env.PUBLIC_SITE_URL?.replace(/\/$/, '');
-  if (configured) return `${configured}${pathname}`;
+  if (configured) return normalizeCanonicalSiteBase(configured);
+  if (isProduction) return 'https://www.citedrop.com';
   const protocol = req.get('x-forwarded-proto') || req.protocol;
-  return `${protocol}://${req.get('host')}${pathname}`;
+  return `${protocol}://${req.get('host')}`;
+}
+
+function normalizeCanonicalSiteBase(base) {
+  try {
+    const url = new globalThis.URL(base);
+    if (url.hostname === 'citedrop.com') {
+      url.hostname = 'www.citedrop.com';
+      url.protocol = 'https:';
+    }
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return base;
+  }
+}
+
+function absoluteUrl(req, pathname) {
+  return `${canonicalSiteBase(req)}${pathname}`;
+}
+
+function canonicalPath(pathname) {
+  if (pathname === '/') return '/';
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
+function redirectToCanonicalUrl(req, res, next) {
+  if (!isProduction || !['GET', 'HEAD'].includes(req.method)) {
+    next();
+    return;
+  }
+
+  let canonical;
+  try {
+    canonical = new globalThis.URL(canonicalSiteBase(req));
+  } catch {
+    next();
+    return;
+  }
+
+  const requestHost = req.get('host');
+  const requestProto = req.get('x-forwarded-proto') || req.protocol;
+  const isPublicPage = req.path === '/' || req.path.startsWith('/articles/');
+  const targetPath = isPublicPage ? canonicalPath(req.path) : req.path;
+  const needsOriginRedirect = requestHost && (
+    requestHost.toLowerCase() !== canonical.host.toLowerCase() ||
+    requestProto !== canonical.protocol.replace(':', '')
+  );
+  const needsPathRedirect = isPublicPage && targetPath !== req.path;
+
+  if (!needsOriginRedirect && !needsPathRedirect) {
+    next();
+    return;
+  }
+
+  const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+  res.redirect(301, `${canonical.origin}${targetPath}${query}`);
 }
 
 function parseCookies(req) {
@@ -462,6 +523,7 @@ function injectArticleMeta(html, article, req) {
   const description = article.summary || article.subtitle || 'Evidence-backed AI research article.';
   const meta = `
     <title>${escapeHtml(title)}</title>
+    <link rel="canonical" href="${escapeHtml(articleUrl)}" />
     <meta name="description" content="${escapeHtml(description)}" />
     <meta property="og:type" content="article" />
     <meta property="og:title" content="${escapeHtml(article.title)}" />
@@ -496,7 +558,7 @@ function injectArticleMeta(html, article, req) {
     'twitter:image'
   ]);
 
-  return cleanedHtml
+  return stripCanonicalLinks(cleanedHtml)
     .replace(/<title>.*?<\/title>/, '')
     .replace('</head>', `${meta}\n  </head>`);
 }
@@ -584,6 +646,7 @@ async function injectHomeMeta(html, req) {
   const imageUrl = absoluteUrl(req, '/og-home-2026-05-17.png');
   const siteUrl = absoluteUrl(req, '/');
   const meta = `
+    <link rel="canonical" href="${escapeHtml(siteUrl)}" />
     <meta property="og:url" content="${escapeHtml(siteUrl)}" />
     <meta property="og:site_name" content="CiteDrop" />
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
@@ -591,7 +654,7 @@ async function injectHomeMeta(html, req) {
   `;
   const snapshot = await homeSnapshotData();
   const dataScript = `<script>window.__CITEDROP_HOME__=${safeJson(snapshot)};</script>`;
-  return stripMetaTags(html, ['og:url', 'og:site_name', 'og:image', 'twitter:image'])
+  return stripCanonicalLinks(stripMetaTags(html, ['og:url', 'og:site_name', 'og:image', 'twitter:image']))
     .replace('<div id="root"></div>', `<div id="root">${renderHomeSnapshot(snapshot.articles)}</div>`)
     .replace('</head>', `${meta}\n    ${dataScript}\n  </head>`);
 }
@@ -1926,6 +1989,7 @@ app.delete('/api/articles/:id', requireDatabase, requireUser, async (req, res) =
 if (isProduction) {
   const distPath = path.join(__dirname, '..', 'dist');
   app.use(express.static(distPath, {
+    index: false,
     maxAge: '1y',
     immutable: true,
     setHeaders(res, assetPath) {
