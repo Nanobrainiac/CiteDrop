@@ -9,7 +9,9 @@ export default function LoginPage() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const mode = params.get('mode') === 'sign-up' ? 'sign-up' : 'sign-in';
-  const destination = location.state?.from?.pathname || '/dashboard';
+  const redirectUrl = params.get('redirect_url') || '';
+  const safeRedirectUrl = redirectUrl.startsWith('/') && !redirectUrl.startsWith('//') ? redirectUrl : '';
+  const destination = location.state?.from?.pathname || safeRedirectUrl || '/dashboard';
   const signupFormStarted = useRef(false);
   const signupGoogleClicked = useRef(false);
 
@@ -21,7 +23,7 @@ export default function LoginPage() {
 
   function showRegister() {
     trackEvent('register_tab_clicked', { destination });
-    setParams({ mode: 'sign-up' });
+    setParams(safeRedirectUrl ? { mode: 'sign-up', redirect_url: safeRedirectUrl } : { mode: 'sign-up' });
   }
 
   function handleSignupFormFocus(event) {
@@ -61,7 +63,7 @@ export default function LoginPage() {
         ) : (
           <>
             <div className="mb-6 grid grid-cols-2 gap-2 rounded-full bg-white/8 p-1">
-              <button type="button" onClick={() => setParams({ mode: 'sign-in' })} className={`rounded-full px-4 py-2 font-bold ${mode === 'sign-in' ? 'bg-acid text-ink' : 'text-white/60'}`}>Login</button>
+              <button type="button" onClick={() => setParams(safeRedirectUrl ? { mode: 'sign-in', redirect_url: safeRedirectUrl } : { mode: 'sign-in' })} className={`rounded-full px-4 py-2 font-bold ${mode === 'sign-in' ? 'bg-acid text-ink' : 'text-white/60'}`}>Login</button>
               <button type="button" onClick={showRegister} className={`rounded-full px-4 py-2 font-bold ${mode === 'sign-up' ? 'bg-acid text-ink' : 'text-white/60'}`}>Register</button>
             </div>
             <div
@@ -70,9 +72,9 @@ export default function LoginPage() {
               onClickCapture={handleSignupFormClick}
             >
               {mode === 'sign-up' ? (
-                <SignUp routing="hash" signInUrl="/login" afterSignUpUrl={destination} />
+                <SignUp routing="hash" signInUrl={`/login${safeRedirectUrl ? `?redirect_url=${encodeURIComponent(safeRedirectUrl)}` : ''}`} afterSignUpUrl={destination} />
               ) : (
-                <SignIn routing="hash" signUpUrl="/login?mode=sign-up" afterSignInUrl={destination} />
+                <SignIn routing="hash" signUpUrl={`/login?mode=sign-up${safeRedirectUrl ? `&redirect_url=${encodeURIComponent(safeRedirectUrl)}` : ''}`} afterSignInUrl={destination} />
               )}
             </div>
           </>

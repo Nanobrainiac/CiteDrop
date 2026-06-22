@@ -401,6 +401,11 @@ function publicArticleUrl(slug) {
   return `${publicAppBaseUrl()}/articles/${slug}`;
 }
 
+function publicArticleReviewUrl(slug) {
+  const destination = `/articles/${slug}`;
+  return `${publicAppBaseUrl()}/login?redirect_url=${encodeURIComponent(destination)}`;
+}
+
 function canonicalPath(pathname) {
   if (pathname === '/') return '/';
   return pathname.replace(/\/+$/, '') || '/';
@@ -634,7 +639,7 @@ async function sendArticleReadyEmail({ userId, article, prompt = '' }) {
   const email = await clerkPrimaryEmail(userId);
   if (!email) return false;
 
-  const url = publicArticleUrl(article.slug);
+  const url = publicArticleReviewUrl(article.slug);
   const title = article.title || 'Your CiteDrop article';
   return sendEmail({
     to: email,
@@ -666,7 +671,7 @@ async function sendStyledArticleReadyEmail({ userId, article, prompt = '' }) {
   const email = await clerkPrimaryEmail(userId);
   if (!email) return false;
 
-  const url = publicArticleUrl(article.slug);
+  const url = publicArticleReviewUrl(article.slug);
   const title = article.title || 'Your CiteDrop article';
   const preview = articleEmailPreview(article, prompt);
   return sendEmail({
