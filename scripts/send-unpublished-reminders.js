@@ -31,7 +31,8 @@ function escapeHtml(value) {
 
 function articleUrl(article) {
   const slug = article?.slug ? encodeURIComponent(article.slug) : '';
-  return publicAppUrl && slug ? `${publicAppUrl}/articles/${slug}` : '';
+  const destination = slug ? `/articles/${slug}` : '';
+  return publicAppUrl && destination ? `${publicAppUrl}/login?redirect_url=${encodeURIComponent(destination)}` : '';
 }
 
 function formatDate(value) {
