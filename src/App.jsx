@@ -19,7 +19,7 @@ export default function App() {
     <Suspense fallback={<LoadingState label="Loading page" />}>
       <Routes>
         <Route path="/" element={<PublicFrame><HomePage /></PublicFrame>} />
-        <Route path="/articles/:slug" element={<PublicFrame><ArticlePage /></PublicFrame>} />
+        <Route path="/articles/:slug" element={<ClerkFrame><ArticlePage /></ClerkFrame>} />
         <Route path="/login" element={<ClerkFrame><LoginPage /></ClerkFrame>} />
         <Route
           path="/dashboard"

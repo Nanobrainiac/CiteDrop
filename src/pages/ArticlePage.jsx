@@ -17,7 +17,7 @@ const ChartRenderer = lazy(() => import('../components/ChartRenderer.jsx'));
 
 export default function ArticlePage() {
   const { slug } = useParams();
-  const { user } = useAuth();
+  const { user, loading: authLoading, configured } = useAuth();
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -28,6 +28,7 @@ export default function ArticlePage() {
   const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
 
   useEffect(() => {
+    if (configured && authLoading) return;
     setLoading(true);
     getArticle(slug, true)
       .then((result) => {
@@ -50,7 +51,7 @@ export default function ArticlePage() {
         }
       })
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [authLoading, configured, slug]);
 
   const sections = useMemo(() => Array.isArray(article?.body) ? article.body : [], [article]);
   const claims = useMemo(() => Array.isArray(article?.claims_json) ? article.claims_json : [], [article]);
