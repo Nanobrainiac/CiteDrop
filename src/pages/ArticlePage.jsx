@@ -56,11 +56,39 @@ export default function ArticlePage() {
   const claims = useMemo(() => Array.isArray(article?.claims_json) ? article.claims_json : [], [article]);
   const charts = useMemo(() => Array.isArray(article?.charts_json) ? article.charts_json : [], [article]);
   const sources = useMemo(() => Array.isArray(article?.sources_json) ? article.sources_json : [], [article]);
+  const usedSourceIds = useMemo(() => {
+    const ids = new Set();
+    claims.forEach((claim) => {
+      if (Array.isArray(claim.sourceIds)) claim.sourceIds.forEach((id) => ids.add(String(id)));
+    });
+    sections.forEach((section) => {
+      (section.paragraphs || []).forEach((paragraph) => {
+        if (typeof paragraph === 'object' && Array.isArray(paragraph.sourceIds)) {
+          paragraph.sourceIds.forEach((id) => ids.add(String(id)));
+        }
+      });
+    });
+    charts.forEach((chart) => {
+      (chart.data || []).forEach((point) => {
+        const sourceName = String(point?.source || '').trim().toLowerCase();
+        if (!sourceName) return;
+        sources.forEach((source) => {
+          const publisher = String(source.publisher || '').trim().toLowerCase();
+          const title = String(source.title || '').trim().toLowerCase();
+          if ((publisher && sourceName.includes(publisher)) || (title && sourceName.includes(title))) {
+            ids.add(String(source.id));
+          }
+        });
+      });
+    });
+    return ids;
+  }, [charts, claims, sections, sources]);
+  const citedSources = useMemo(() => sources.filter((source) => usedSourceIds.has(String(source.id))), [sources, usedSourceIds]);
   const fallbackChartData = useMemo(() => [
     { label: 'Claims', value: claims.length },
     { label: 'Charts', value: charts.length },
-    { label: 'Sources', value: sources.length }
-  ], [claims.length, charts.length, sources.length]);
+    { label: 'Sources', value: citedSources.length }
+  ], [claims.length, charts.length, citedSources.length]);
   const chartsById = useMemo(() => new Map(charts.map((chart, index) => [chart.id || chart.slug || `chart-${index + 1}`, chart])), [charts]);
   const sourcesById = useMemo(() => new Map(sources.map((source, index) => [String(source.id || `source-${index + 1}`), { ...source, id: String(source.id || `source-${index + 1}`) }])), [sources]);
   const usedChartIds = useMemo(() => {
@@ -146,7 +174,7 @@ export default function ArticlePage() {
                 <span className="rounded-full bg-acid px-3 py-1 font-black uppercase text-ink">{article.category}</span>
                 <span>{formatDate(article.created_at)}</span>
                 <span className="uppercase">{article.status}</span>
-                <span>{sources.length} sources</span>
+                <span>{citedSources.length} cited sources</span>
               </div>
             </div>
             <h1 className="mt-6 max-w-4xl break-words border-b border-white/10 pb-5 text-4xl font-black leading-[1.03] sm:text-6xl">{article.title}</h1>
@@ -182,7 +210,7 @@ export default function ArticlePage() {
             )}
             <SectionTabs items={sectionTabs} className="mt-6 rounded-lg lg:hidden" />
           </div>
-          <EvidenceScorePanel claims={claims} charts={charts} sources={sources} />
+          <EvidenceScorePanel claims={claims} charts={charts} sources={citedSources} />
         </div>
       </header>
 
@@ -213,7 +241,7 @@ export default function ArticlePage() {
                             onClick={() => setSelectedSource(source)}
                             className="inline-flex min-h-11 items-center rounded-full border border-acid/30 bg-acid/10 px-4 py-2 text-sm font-black text-acid hover:bg-acid hover:text-ink"
                           >
-                            Source {sourceIndex + 1}: {source.publisher || sourceDomain(source.url) || 'Reference'}
+                            {source.publisher || sourceDomain(source.url) || 'Reference'}
                           </button>
                         ))}
                       </div>

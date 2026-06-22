@@ -44,3 +44,16 @@ create index if not exists articles_created_by_idx on articles(created_by, creat
 create index if not exists articles_search_idx on articles using gin (
   to_tsvector('english', coalesce(title, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(category, ''))
 );
+
+create table if not exists article_publish_reminders (
+  id uuid primary key default gen_random_uuid(),
+  article_id uuid not null references articles(id) on delete cascade,
+  reminder_number int not null check (reminder_number between 1 and 5),
+  sent_to text not null,
+  sent_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  unique (article_id, reminder_number)
+);
+
+create index if not exists article_publish_reminders_article_id_idx
+  on article_publish_reminders(article_id, sent_at desc);

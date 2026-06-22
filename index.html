@@ -25,13 +25,18 @@
       window.dataLayer = window.dataLayer || [];
       window.gtag = window.gtag || function gtag(){window.dataLayer.push(arguments);}
       window.gtag('js', new Date());
-      (window.requestIdleCallback || window.setTimeout)(function(){
+      var loadAnalytics = function(){
         var script = document.createElement('script');
         script.async = true;
         script.src = 'https://www.googletagmanager.com/gtag/js?id=G-3BEQ6WDW5M';
         document.head.appendChild(script);
         window.gtag('config', 'G-3BEQ6WDW5M');
-      }, 1500);
+      };
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(loadAnalytics, { timeout: 1500 });
+      } else {
+        window.setTimeout(loadAnalytics, 1500);
+      }
     </script>
   </head>
   <body>

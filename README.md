@@ -103,11 +103,32 @@ You can add multiple bootstrap admins with comma-separated IDs. After at least o
 
 The backend uses the OpenAI Responses API with web search for article generation. It asks the model to ground the article in multiple specific source pages, avoid homepage-only citations, qualify uncertainty, separate claims from opinion, and keep language professional.
 
+## Article Ready Email Setup
+
+Set `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_APP_URL` to email signed-in users when article generation completes. Anonymous generations do not send email.
+
+## Unpublished Draft Reminders
+
+Run this command daily from Heroku Scheduler to remind users about draft articles they have not published:
+
+```bash
+npm run reminders:unpublished
+```
+
+The job sends at most five reminders per draft on days 1, 3, 6, 10, and 14 after the article was created. Sent reminders are recorded in `article_publish_reminders`, so rerunning the job does not resend the same reminder. Test the job without sending email with:
+
+```bash
+npm run reminders:unpublished -- --dry-run
+```
+
+Required config vars are `DATABASE_URL`, `CLERK_SECRET_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_APP_URL` or `PUBLIC_SITE_URL`.
+
 ## Database Tables
 
 The app uses:
 
 - `articles`
+- `article_publish_reminders`
 
 Article fields include `title`, `slug`, `subtitle`, `summary`, `category`, `status`, `body`, `claims_json`, `charts_json`, `sources_json`, `created_by`, `created_at`, and `updated_at`.
 

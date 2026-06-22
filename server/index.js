@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import OpenAI from 'openai';
 import slugify from 'slugify';
@@ -33,6 +34,7 @@ const generationStages = {
   evidence_synthesis: 'Ranking sources',
   counterevidence: 'Checking counterevidence',
   drafting: 'Writing the first draft',
+  polish: 'Polishing the article',
   review: 'Running fact-check and bias review',
   revision: 'Revising the article',
   citation_audit: 'Auditing citations',
@@ -53,7 +55,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
-app.use(cors({ origin: isProduction ? false : true }));
+app.use(cors({ origin: isProduction ? false : true, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(isProduction ? 'combined' : 'dev'));
@@ -389,6 +391,16 @@ function absoluteUrl(req, pathname) {
   return `${canonicalSiteBase(req)}${pathname}`;
 }
 
+function publicAppBaseUrl() {
+  const configured = (process.env.PUBLIC_APP_URL || process.env.PUBLIC_SITE_URL || '').replace(/\/$/, '');
+  if (configured) return normalizeCanonicalSiteBase(configured);
+  return isProduction ? 'https://www.citedrop.com' : 'http://localhost:5173';
+}
+
+function publicArticleUrl(slug) {
+  return `${publicAppBaseUrl()}/articles/${slug}`;
+}
+
 function canonicalPath(pathname) {
   if (pathname === '/') return '/';
   return pathname.replace(/\/+$/, '') || '/';
@@ -484,6 +496,215 @@ function releaseAnonymousGeneration(req, token) {
     count: Math.max(usage.count - 1, 0),
     startedAt: usage.startedAt
   });
+}
+
+async function clerkPrimaryEmail(clerkUserId) {
+  if (!clerkUserId || !process.env.CLERK_SECRET_KEY) return '';
+  try {
+    const response = await fetch(`https://api.clerk.com/v1/users/${encodeURIComponent(clerkUserId)}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) {
+      console.warn(`Unable to load Clerk user email for ${clerkUserId}: HTTP ${response.status}`);
+      return '';
+    }
+    const user = await response.json();
+    const primaryId = user.primary_email_address_id;
+    const primary = Array.isArray(user.email_addresses)
+      ? user.email_addresses.find((email) => email.id === primaryId) || user.email_addresses[0]
+      : null;
+    return primary?.email_address || '';
+  } catch (error) {
+    console.warn(`Unable to load Clerk user email for ${clerkUserId}: ${error.message}`);
+    return '';
+  }
+}
+
+async function sendEmail({ to, subject, html, text }) {
+  if (!to || !process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    if (to) console.info('Email not sent; configure RESEND_API_KEY and EMAIL_FROM.');
+    return false;
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM,
+        to,
+        subject,
+        html,
+        text
+      })
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn(`Email send failed: HTTP ${response.status} ${body.slice(0, 240)}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn(`Email send failed: ${error.message}`);
+    return false;
+  }
+}
+
+function articleEmailPreview(article = {}, prompt = '') {
+  const body = Array.isArray(article.body) ? article.body : [];
+  const firstParagraph = body
+    .flatMap((section) => Array.isArray(section.paragraphs) ? section.paragraphs : [])
+    .map((paragraph) => typeof paragraph === 'string' ? paragraph : paragraph?.text)
+    .find(Boolean) || '';
+  const claims = Array.isArray(article.claims_json) ? article.claims_json : [];
+  const charts = Array.isArray(article.charts_json) ? article.charts_json : [];
+  const sources = Array.isArray(article.sources_json) ? article.sources_json : [];
+  return {
+    prompt: String(prompt || article.summary || article.title || '').trim().slice(0, 700),
+    summary: String(article.summary || '').trim().slice(0, 700),
+    excerpt: String(firstParagraph || article.subtitle || '').trim().slice(0, 520),
+    category: String(article.category || 'Research').trim(),
+    status: String(article.status || 'draft').trim(),
+    claimsCount: claims.length,
+    chartsCount: charts.length,
+    sourcesCount: sources.length
+  };
+}
+
+function articleReadyEmailHtml({ title, url, preview }) {
+  const prompt = preview.prompt || 'Your article request';
+  const summary = preview.summary || 'Your source-backed article has finished generating.';
+  const excerpt = preview.excerpt || summary;
+  return `
+    <div style="margin:0;background:#05070b;padding:0;font-family:Inter,Arial,sans-serif;color:#f7f7f2">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#05070b;margin:0;padding:28px 12px">
+        <tr><td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border:1px solid rgba(255,255,255,0.12);background:#10141c;border-radius:8px;overflow:hidden">
+            <tr><td style="padding:24px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.1)">
+              <div style="font-size:13px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#d7ff3f">CiteDrop</div>
+              <h1 style="margin:10px 0 0;font-size:30px;line-height:1.05;color:#ffffff">Your article is ready</h1>
+              <p style="margin:10px 0 0;color:#aeb4c0;font-size:15px;line-height:1.6">It is saved as a draft. Review it, then publish when it is ready to share.</p>
+            </td></tr>
+            <tr><td style="padding:22px 24px">
+              <div style="margin:0 0 18px;padding:16px;border:1px solid rgba(215,255,63,0.35);background:rgba(215,255,63,0.08);border-radius:8px">
+                <div style="font-size:12px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#d7ff3f">Your original question</div>
+                <p style="margin:8px 0 0;color:#ffffff;font-size:17px;line-height:1.55;font-weight:700">${escapeHtml(prompt)}</p>
+              </div>
+              <div style="margin:0 0 16px">
+                <div style="font-size:12px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#8c95a3">${escapeHtml(preview.category)} / ${escapeHtml(preview.status)}</div>
+                <h2 style="margin:8px 0 0;font-size:24px;line-height:1.18;color:#ffffff">${escapeHtml(title)}</h2>
+                <p style="margin:12px 0 0;color:#c6cbd3;font-size:15px;line-height:1.65">${escapeHtml(summary)}</p>
+              </div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:18px 0;border-collapse:separate;border-spacing:8px 0">
+                <tr>
+                  <td style="background:#171c26;border:1px solid rgba(255,255,255,0.09);border-radius:8px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:900;color:#d7ff3f">${preview.claimsCount}</div><div style="font-size:12px;color:#8c95a3;text-transform:uppercase">Claims</div></td>
+                  <td style="background:#171c26;border:1px solid rgba(255,255,255,0.09);border-radius:8px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:900;color:#d7ff3f">${preview.chartsCount}</div><div style="font-size:12px;color:#8c95a3;text-transform:uppercase">Charts</div></td>
+                  <td style="background:#171c26;border:1px solid rgba(255,255,255,0.09);border-radius:8px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:900;color:#d7ff3f">${preview.sourcesCount}</div><div style="font-size:12px;color:#8c95a3;text-transform:uppercase">Sources</div></td>
+                </tr>
+              </table>
+              <div style="margin:18px 0 22px;padding:16px;background:#0b0f16;border-left:3px solid #d7ff3f;border-radius:4px">
+                <div style="font-size:12px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#8c95a3">Article preview</div>
+                <p style="margin:8px 0 0;color:#d8dde5;font-size:15px;line-height:1.65">${escapeHtml(excerpt)}${excerpt.length >= 520 ? '...' : ''}</p>
+              </div>
+              <a href="${escapeHtml(url)}" style="display:inline-block;background:#d7ff3f;color:#080a0f;padding:13px 20px;border-radius:999px;font-weight:900;text-decoration:none">Review and publish article</a>
+              <p style="margin:18px 0 0;color:#8c95a3;font-size:13px;line-height:1.55">You can close CiteDrop while articles generate. We will email you when they are ready.</p>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </div>
+  `;
+}
+
+async function sendArticleReadyEmail({ userId, article, prompt = '' }) {
+  if (process.env.EMAIL_TEMPLATE_VERSION !== 'legacy') {
+    return sendStyledArticleReadyEmail({ userId, article, prompt });
+  }
+  if (!userId || String(userId).startsWith('anonymous:') || !article?.slug) return false;
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    console.info('Article-ready email not sent; configure RESEND_API_KEY and EMAIL_FROM.');
+    return false;
+  }
+  const email = await clerkPrimaryEmail(userId);
+  if (!email) return false;
+
+  const url = publicArticleUrl(article.slug);
+  const title = article.title || 'Your CiteDrop article';
+  return sendEmail({
+    to: email,
+    subject: `Your CiteDrop article is ready: ${title}`,
+    text: [
+      `Your CiteDrop article is ready: ${title}`,
+      '',
+      `Review it here: ${url}`,
+      '',
+      'It is saved as a draft until you publish it.'
+    ].join('\n'),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
+        <h1 style="font-size:22px;margin:0 0 12px">Your CiteDrop article is ready</h1>
+        <p><strong>${escapeHtml(title)}</strong> has finished generating and is saved as a draft.</p>
+        <p><a href="${escapeHtml(url)}" style="display:inline-block;background:#d7ff3f;color:#111;padding:12px 18px;border-radius:999px;font-weight:700;text-decoration:none">Review and publish article</a></p>
+        <p style="color:#555">You can close CiteDrop while articles generate. We’ll email you when they’re ready.</p>
+      </div>
+    `
+  });
+}
+
+async function sendStyledArticleReadyEmail({ userId, article, prompt = '' }) {
+  if (!userId || String(userId).startsWith('anonymous:') || !article?.slug) return false;
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    console.info('Article-ready email not sent; configure RESEND_API_KEY and EMAIL_FROM.');
+    return false;
+  }
+  const email = await clerkPrimaryEmail(userId);
+  if (!email) return false;
+
+  const url = publicArticleUrl(article.slug);
+  const title = article.title || 'Your CiteDrop article';
+  const preview = articleEmailPreview(article, prompt);
+  return sendEmail({
+    to: email,
+    subject: `Your CiteDrop article is ready: ${title}`,
+    text: [
+      `Your CiteDrop article is ready: ${title}`,
+      '',
+      `Original question: ${preview.prompt}`,
+      '',
+      preview.summary,
+      '',
+      `Preview: ${preview.excerpt}`,
+      '',
+      `Review it here: ${url}`,
+      '',
+      'It is saved as a draft until you publish it.'
+    ].join('\n'),
+    html: articleReadyEmailHtml({ title, url, preview })
+  });
+}
+
+async function attachCreatorEmails(articles = []) {
+  const creatorIds = [...new Set(
+    articles
+      .map((article) => article.created_by)
+      .filter((id) => id && !String(id).startsWith('anonymous:'))
+  )];
+  if (!creatorIds.length) return articles;
+
+  const entries = await Promise.all(
+    creatorIds.map(async (creatorId) => [creatorId, await clerkPrimaryEmail(creatorId)])
+  );
+  const emailByCreator = new Map(entries);
+  return articles.map((article) => ({
+    ...article,
+    created_by_email: emailByCreator.get(article.created_by) || ''
+  }));
 }
 
 async function anonymousArticleCount(token) {
@@ -894,8 +1115,31 @@ function normalizeSources(articleSources = [], responseSources = []) {
   }
   return [...byUrl.values()].map((source, index) => ({
     ...source,
-    id: String(source.id || `source-${index + 1}`)
+    originalId: source.id ? String(source.id) : '',
+    id: `source-${index + 1}`
   }));
+}
+
+function sourceIdRemap(originalSources = [], normalizedSources = []) {
+  const remap = new Map();
+  originalSources.forEach((source, index) => {
+    const normalized = normalizedSources[index];
+    if (!normalized?.id) return;
+    const originalId = source?.id ? String(source.id) : '';
+    if (originalId) remap.set(originalId, normalized.id);
+    remap.set(`source-${index + 1}`, normalized.id);
+    const key = sourceKey(source);
+    if (key) remap.set(key, normalized.id);
+  });
+  return remap;
+}
+
+function remapSourceIds(ids = [], remap = new Map(), validIds = new Set()) {
+  return [...new Set(
+    (Array.isArray(ids) ? ids : [])
+      .map((id) => remap.get(String(id)) || String(id))
+      .filter((id) => validIds.has(id))
+  )];
 }
 
 function sourceKey(source = {}) {
@@ -950,7 +1194,7 @@ function repairClaimSourceIds(claims = [], sources = []) {
       : [];
     return {
       ...claim,
-      sourceIds: validIds.length ? validIds : sourceIds.slice(0, Math.min(3, sourceIds.length))
+      sourceIds: validIds
     };
   });
 }
@@ -974,6 +1218,40 @@ function repairParagraphSourceIds(body = [], sources = []) {
 function hardCitationAuditIssues(issues = []) {
   const hardFailurePattern = /(fabricat|invent|not actually consulted|no sources?|zero sources?|homepage-only|body text.*url|url\/citation dumps?|raw urls?)/i;
   return issues.filter((issue) => hardFailurePattern.test(String(issue || '')));
+}
+
+function articleBodyQualityIssues(article = {}) {
+  const sections = Array.isArray(article.body) ? article.body : [];
+  const paragraphs = sections.flatMap((section) => Array.isArray(section.paragraphs) ? section.paragraphs : []);
+  const issues = [];
+  if (sections.length < 4) issues.push('Article has fewer than 4 sourced body sections after source enforcement.');
+  if (paragraphs.length < 6) issues.push('Article has fewer than 6 sourced body paragraphs after source enforcement.');
+  const bodySourceIds = paragraphs.flatMap((paragraph) => Array.isArray(paragraph.sourceIds) ? paragraph.sourceIds.map(String) : []);
+  const distinctBodySources = new Set(bodySourceIds);
+  if (paragraphs.length >= 4 && distinctBodySources.size < 3) {
+    issues.push('Article body relies on fewer than 3 distinct sources; add relevant sourced coverage or remove unsupported sections.');
+  }
+  const sourceUseCounts = bodySourceIds.reduce((counts, id) => counts.set(id, (counts.get(id) || 0) + 1), new Map());
+  const maxUse = Math.max(0, ...sourceUseCounts.values());
+  if (paragraphs.length >= 4 && maxUse / paragraphs.length > 0.7) {
+    issues.push('Article body overuses one source across unrelated sections; use more relevant source IDs or remove weak sections.');
+  }
+  const firstText = String(paragraphs[0]?.text || '').trim();
+  if (/^(also|additionally|furthermore|moreover|however|conversely|therefore|meanwhile|in addition)\b/i.test(firstText)) {
+    issues.push('Article appears to start midstream with a continuation transition.');
+  }
+  return issues;
+}
+
+function citationAuditWithBodyQuality(citationAudit = {}, article = {}) {
+  const qualityIssues = articleBodyQualityIssues(article);
+  if (!qualityIssues.length) return citationAudit;
+  return {
+    ...citationAudit,
+    passed: false,
+    blockingIssues: [...(citationAudit.blockingIssues || []), ...qualityIssues],
+    warnings: citationAudit.warnings || []
+  };
 }
 
 async function auditGeneratedArticle({ reviewModel, input, claimPlan, article, consultedSources }) {
@@ -1014,9 +1292,13 @@ async function repairArticleCitations({ writingModel, input, claimPlan, existing
           currentDate,
           attempt,
           repairRules: [
+            'Change only the specific claims, paragraphs, charts, or source mappings needed to resolve citationAudit blockingIssues and warnings. Preserve unaffected sections verbatim when possible.',
+            'If the article is too short after source enforcement, add only source-backed paragraphs from consultedSources and the compact repair context. Do not add unsourced filler.',
+            'If the first paragraph starts with a continuation transition such as additionally, however, or moreover, rewrite it as a proper opening paragraph using only sourced facts.',
+            'Use source IDs that match the actual evidence in each paragraph. Do not use one source as a generic fallback for unrelated sections.',
             'For every unsupported factual claim or unanswered research question, either attach relevant existing source support, remove the claim, soften it, or explicitly state that available public evidence is insufficient to make a determination.',
             'Do not invent new sources, URLs, statistics, quotes, or source metadata.',
-            'Use only the research brief and consulted sources. Prefer sources with verified readable text or extracted PDF text.',
+            'Use only the compact repair context and consulted sources. Prefer sources with verified readable text or extracted PDF text.',
             'If there is not enough public data, save a useful limited-evidence draft: explain what was found, what was not found, and what evidence would be needed for a stronger determination.',
             'Every paragraph object must include sourceIds. Evidence-bearing paragraphs should include the source IDs that support them. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when possible.',
             'Keep sources only in the sources array. Do not place raw URLs, citation dumps, references sections, or markdown links in body text. Use paragraph sourceIds to connect paragraphs to sources.',
@@ -1034,6 +1316,83 @@ async function repairArticleCitations({ writingModel, input, claimPlan, existing
       }
     ]
   });
+}
+
+async function polishGeneratedArticle({ writingModel, input, claimPlan, existingCategories, currentDate, evidencePacket, targetedResearch, consultedSources, article }) {
+  return openaiJson({
+    model: writingModel,
+    schema: articleJsonSchema,
+    temperature: 0.12,
+    input: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          task: 'Polish this generated article for publication quality without changing its factual basis. Preserve the required article JSON shape.',
+          currentDate,
+          polishRules: [
+            'Do not add sources, URLs, statistics, quotes, or claims that are not already supported by consultedSources, evidencePacket, targetedResearch, or the current article.',
+            'Improve thin one-paragraph sections by adding context, caveats, and interpretation only from the provided evidence.',
+            'Remove or rename generic filler sections such as Additional Evidence when they only repeat chart takeaways. Integrate chart explanation into relevant article sections when possible.',
+            'Keep all paragraph sourceIds valid and tied to the supporting consultedSources.',
+            'Keep chartIds attached only to paragraphs that directly explain those charts.',
+            'Do not rewrite for style alone; prioritize depth, specificity, source-label clarity, and reader trust.'
+          ],
+          originalRequest: input,
+          claimPlan,
+          existingCategories,
+          evidencePacket,
+          targetedResearch,
+          consultedSources,
+          article,
+          requiredShape: articleJsonShape
+        })
+      }
+    ]
+  });
+}
+
+function reviewRequiresFullRevision(review = {}) {
+  const requiredRevisions = Array.isArray(review.requiredRevisions) ? review.requiredRevisions.filter(Boolean) : [];
+  const skepticalIssues = Array.isArray(review.skepticalReview) ? review.skepticalReview : [];
+  const neutralityIssues = Array.isArray(review.neutralityReview) ? review.neutralityReview : [];
+  const blockingIssues = [...skepticalIssues, ...neutralityIssues]
+    .filter((issue) => ['high', 'medium'].includes(String(issue?.severity || '').toLowerCase()));
+  return requiredRevisions.length > 0 || blockingIssues.length > 0;
+}
+
+function compactCitationRepairContext({ evidencePacket, researchBriefs, citationAudit }) {
+  return JSON.stringify({
+    promptSummary: evidencePacket?.promptSummary || '',
+    globalLimitations: evidencePacket?.globalLimitations || [],
+    targets: Array.isArray(evidencePacket?.targets)
+      ? evidencePacket.targets.map((target) => ({
+        target: target.target,
+        answerMode: target.answerMode,
+        evidenceSummary: target.evidenceSummary,
+        limitations: target.limitations,
+        topSources: Array.isArray(target.topSources) ? target.topSources.slice(0, 5) : [],
+        counterSources: Array.isArray(target.counterSources) ? target.counterSources.slice(0, 3) : []
+      }))
+      : [],
+    targetedResearch: Array.isArray(researchBriefs)
+      ? researchBriefs.map((item) => ({
+        target: item.target,
+        brief: String(item.brief || '').slice(0, 1800)
+      }))
+      : [],
+    citationAudit: {
+      blockingIssues: citationAudit?.blockingIssues || [],
+      warnings: citationAudit?.warnings || []
+    }
+  });
+}
+
+function compactResearchBriefs(researchBriefs = [], maxChars = 2400) {
+  return researchBriefs.map((item) => ({
+    target: item.target,
+    brief: String(item.brief || '').slice(0, maxChars)
+  }));
 }
 
 function cleanSource(source = {}) {
@@ -1212,20 +1571,67 @@ function normalizeGeneratedArticle(article, fallbackCategory) {
   const body = Array.isArray(article.body) ? sanitizeArticleBody(article.body) : [];
   const category = normalizeCategory(article.category, fallbackCategory);
   const charts = Array.isArray(article.charts) ? article.charts : [];
+  const rawSources = Array.isArray(article.sources) ? article.sources : [];
+  const sources = normalizeSources(rawSources);
+  const idRemap = sourceIdRemap(rawSources, sources);
+  const validSourceIds = new Set(sources.map((source) => source.id));
+  const remappedBody = remapBodySourceIds(body, idRemap, validSourceIds);
+  const remappedClaims = Array.isArray(article.keyClaims)
+    ? article.keyClaims.slice(0, 3).map((claim) => ({
+      ...claim,
+      sourceIds: remapSourceIds(claim.sourceIds, idRemap, validSourceIds)
+    }))
+    : [];
   return {
     title,
     slug: slugify(rawSlug, { lower: true, strict: true }).slice(0, 140) || `article-${Date.now()}`,
     subtitle: String(article.subtitle || '').slice(0, 240),
     summary: String(article.summary || '').slice(0, 700),
     category,
-    body: attachOrphanCharts(body, charts),
-    keyClaims: Array.isArray(article.keyClaims) ? article.keyClaims.slice(0, 3) : [],
+    body: enforceParagraphSourceCoverage({
+      body: attachOrphanCharts(remappedBody, charts, sources),
+      charts,
+      sources
+    }).body,
+    keyClaims: remappedClaims,
     charts,
-    sources: normalizeSources(Array.isArray(article.sources) ? article.sources : [])
+    sources
   };
 }
 
-function attachOrphanCharts(body, charts) {
+function remapBodySourceIds(body = [], remap = new Map(), validIds = new Set()) {
+  return body.map((section) => ({
+    ...section,
+    paragraphs: Array.isArray(section.paragraphs)
+      ? section.paragraphs.map((paragraph) => ({
+        ...paragraph,
+        sourceIds: remapSourceIds(paragraph.sourceIds, remap, validIds)
+      }))
+      : []
+  }));
+}
+
+function chartSourceIds(chart = {}, sources = []) {
+  const haystack = [
+    chart.sourceNote,
+    chart.note,
+    ...(Array.isArray(chart.data) ? chart.data.map((point) => point?.source) : [])
+  ].join(' ').toLowerCase();
+  if (!haystack.trim()) return [];
+  return sources
+    .filter((source) => {
+      const publisher = String(source.publisher || '').toLowerCase();
+      const title = String(source.title || '').toLowerCase();
+      const domain = sourceDomain(source.url).toLowerCase();
+      return (publisher && haystack.includes(publisher)) ||
+        (domain && haystack.includes(domain)) ||
+        (title && title.length > 12 && haystack.includes(title.slice(0, 48)));
+    })
+    .map((source) => source.id)
+    .slice(0, 3);
+}
+
+function attachOrphanCharts(body, charts, sources = []) {
   if (!charts.length) return body;
   const referencedIds = new Set();
   for (const section of body) {
@@ -1245,14 +1651,77 @@ function attachOrphanCharts(body, charts) {
   return [
     ...body,
     {
-      heading: 'Additional Evidence',
+      heading: 'Visual Evidence',
       paragraphs: orphanCharts.map((chart) => ({
         text: chart.takeaway || chart.note || `${chart.title} adds context to the report.`,
         chartIds: [chart.id],
-        sourceIds: []
+        sourceIds: chartSourceIds(chart, sources)
       }))
     }
   ];
+}
+
+function enforceParagraphSourceCoverage(article = {}) {
+  const sources = Array.isArray(article.sources) ? article.sources : [];
+  const charts = Array.isArray(article.charts) ? article.charts : [];
+  const validSourceIds = new Set(sources.map((source) => String(source.id)));
+  const chartsById = new Map(charts.map((chart) => [String(chart.id), chart]));
+
+  return {
+    ...article,
+    body: Array.isArray(article.body)
+      ? article.body.map((section) => ({
+        ...section,
+        paragraphs: Array.isArray(section.paragraphs)
+          ? section.paragraphs
+            .map((paragraph) => {
+              const chartIds = Array.isArray(paragraph?.chartIds) ? paragraph.chartIds.map(String).filter(Boolean) : [];
+              const sourceIds = remapSourceIds(paragraph?.sourceIds, new Map(), validSourceIds);
+              const chartBackedSourceIds = chartIds.flatMap((chartId) => chartSourceIds(chartsById.get(chartId), sources));
+              return {
+                ...paragraph,
+                chartIds,
+                sourceIds: sourceIds.length ? sourceIds : [...new Set(chartBackedSourceIds)]
+              };
+            })
+            .filter((paragraph) => paragraph.sourceIds.length > 0)
+          : []
+      }))
+        .filter((section) => section.paragraphs.length > 0)
+      : [],
+    keyClaims: Array.isArray(article.keyClaims)
+      ? article.keyClaims
+        .map((claim) => ({
+          ...claim,
+          sourceIds: remapSourceIds(claim.sourceIds, new Map(), validSourceIds)
+        }))
+        .filter((claim) => claim.sourceIds.length > 0)
+        .slice(0, 3)
+      : []
+  };
+}
+
+function citedSourceIds(article = {}) {
+  const ids = new Set();
+  (article.keyClaims || []).forEach((claim) => {
+    if (Array.isArray(claim.sourceIds)) claim.sourceIds.forEach((id) => ids.add(String(id)));
+  });
+  (article.body || []).forEach((section) => {
+    (section.paragraphs || []).forEach((paragraph) => {
+      if (Array.isArray(paragraph.sourceIds)) paragraph.sourceIds.forEach((id) => ids.add(String(id)));
+    });
+  });
+  return ids;
+}
+
+function pruneUncitedSources(article = {}) {
+  const ids = citedSourceIds(article);
+  return {
+    ...article,
+    sources: Array.isArray(article.sources)
+      ? article.sources.filter((source) => ids.has(String(source.id)))
+      : []
+  };
 }
 
 function sanitizeArticleBody(body) {
@@ -1309,8 +1778,102 @@ async function listExistingCategories() {
   return rows.map((row) => row.category);
 }
 
-async function performArticleGeneration(input, userId, onStage = () => {}) {
-  const existingCategories = await listExistingCategories();
+function generatedArticlePayload(generated, userId, slug = uniqueSlug(generated.slug)) {
+  return {
+    title: generated.title,
+    slug,
+    subtitle: generated.subtitle,
+    summary: generated.summary,
+    category: generated.category,
+    status: 'draft',
+    body: generated.body,
+    claims_json: generated.keyClaims,
+    charts_json: generated.charts,
+    sources_json: generated.sources,
+    created_by: userId
+  };
+}
+
+async function insertGeneratedArticle(generated, userId) {
+  const insertPayload = generatedArticlePayload(generated, userId);
+  const { rows } = await query(
+    `insert into articles
+      (title, slug, subtitle, summary, category, status, body, claims_json, charts_json, sources_json, created_by)
+     values
+      ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11)
+     returning *`,
+    [
+      insertPayload.title,
+      insertPayload.slug,
+      insertPayload.subtitle,
+      insertPayload.summary,
+      insertPayload.category,
+      insertPayload.status,
+      JSON.stringify(insertPayload.body),
+      JSON.stringify(insertPayload.claims_json),
+      JSON.stringify(insertPayload.charts_json),
+      JSON.stringify(insertPayload.sources_json),
+      userId
+    ]
+  );
+  return rows[0];
+}
+
+async function updateGeneratedArticle(articleId, generated, userId, currentArticle) {
+  const payload = generatedArticlePayload(generated, userId, currentArticle.slug);
+  const { rows } = await query(
+    `update articles
+     set title = $1,
+         subtitle = $2,
+         summary = $3,
+         category = $4,
+         body = $5::jsonb,
+         claims_json = $6::jsonb,
+         charts_json = $7::jsonb,
+         sources_json = $8::jsonb,
+         created_by = coalesce(created_by, $9),
+         updated_at = now()
+     where id = $10
+     returning *`,
+    [
+      payload.title,
+      payload.subtitle,
+      payload.summary,
+      payload.category,
+      JSON.stringify(payload.body),
+      JSON.stringify(payload.claims_json),
+      JSON.stringify(payload.charts_json),
+      JSON.stringify(payload.sources_json),
+      userId,
+      articleId
+    ]
+  );
+  return rows[0];
+}
+
+async function performArticleGeneration(input, userId, onStage = () => {}, onTiming = () => {}, saveGeneratedArticle = insertGeneratedArticle) {
+  const generationStartedAt = performance.now();
+  const timings = [];
+  const recordTiming = (name, startedAt, extra = {}) => {
+    const timing = {
+      name,
+      ms: Math.round(performance.now() - startedAt),
+      ...extra
+    };
+    timings.push(timing);
+    onTiming(timings);
+    return timing;
+  };
+  const timedStep = async (name, fn, extra = {}) => {
+    const startedAt = performance.now();
+    try {
+      return await fn();
+    } finally {
+      recordTiming(name, startedAt, extra);
+    }
+  };
+
+  const existingCategories = await timedStep('list_existing_categories', listExistingCategories);
   const currentDate = currentDateString();
   const planningModel = process.env.OPENAI_PLANNING_MODEL || process.env.OPENAI_REVIEW_MODEL || process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const researchModel = process.env.OPENAI_RESEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -1318,7 +1881,7 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
   const reviewModel = process.env.OPENAI_REVIEW_MODEL || process.env.OPENAI_JSON_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
   onStage('claim_extraction');
-  const claimPlan = await openaiJson({
+  const claimPlan = await timedStep('claim_extraction', () => openaiJson({
     model: planningModel,
     schema: claimExtractionJsonSchema,
     temperature: 0.1,
@@ -1343,16 +1906,14 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
         })
       }
     ]
-  });
+  }), { model: planningModel });
 
   onStage('research');
   const targets = researchTargets(input, claimPlan);
-  const targetResearchResponses = [];
-  for (let index = 0; index < targets.length; index += 1) {
-    const target = targets[index];
+  const targetResearchResponses = await Promise.all(targets.map((target, index) => {
     const stageType = target.type === 'claim' ? 'claim' : target.type === 'question' ? 'question' : 'target';
     onStage(`searching_${stageType}_${index + 1}`, `Searching ${stageType} ${index + 1} of ${targets.length}: ${target.text.slice(0, 90)}`);
-    targetResearchResponses.push(await openai.responses.create({
+    return timedStep(`research_target_${index + 1}`, () => openai.responses.create({
       model: researchModel,
       tools: [{ type: process.env.OPENAI_WEB_SEARCH_TOOL || 'web_search_preview' }],
       tool_choice: 'auto',
@@ -1362,22 +1923,24 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: buildTargetResearchInput({ input, target, currentDate, existingCategories, claimPlan }) }
       ]
-    }));
-  }
+    }), { model: researchModel, targetType: target.type });
+  }));
 
   const researchBriefs = targetResearchResponses.map((response, index) => ({
     target: targets[index],
     brief: response.output_text
   }));
+  const compactBriefs = compactResearchBriefs(researchBriefs);
   const responseSources = targetResearchResponses.flatMap((response) => response.output?.flatMap((item) => item.action?.sources || []) || []);
   const normalizedConsultedSources = normalizeSources([], responseSources);
   onStage('source_ingestion');
-  const ingestedSources = await ingestSources(normalizedConsultedSources, onStage);
+  const ingestedSources = await timedStep('source_ingestion', () => ingestSources(normalizedConsultedSources, onStage), { sourceCount: normalizedConsultedSources.length });
   const usableSources = verifiedUsableSources(ingestedSources);
+  const draftSources = usableSources.length ? usableSources : ingestedSources.filter((source) => !source.verificationNote?.includes('source limit reached')).slice(0, 12);
 
   onStage('evidence_synthesis');
   onStage('ranking_primary_sources', 'Ranking primary and authoritative sources by relevance, recency, specificity, and authority.');
-  const evidencePacket = await openaiJson({
+  const evidencePacket = await timedStep('evidence_synthesis', () => openaiJson({
     model: reviewModel,
     schema: evidencePacketJsonSchema,
     temperature: 0.1,
@@ -1394,8 +1957,8 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           originalRequest: input,
           claimPlan,
           targets,
-          researchBriefs,
-          consultedSources: usableSources.length ? usableSources : ingestedSources,
+          researchBriefs: compactBriefs,
+          consultedSources: draftSources,
           scoringRules: [
             'Score sources higher when they are primary, specific, recent, authoritative, and directly answer the target.',
             'Score sources higher when sourceTextSample confirms readable page or PDF text was extracted.',
@@ -1407,11 +1970,11 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
         })
       }
     ]
-  });
+  }), { model: reviewModel, sourceCount: draftSources.length });
   onStage('checking_counterevidence', 'Checking for opposing evidence, limitations, stale data, and missing context before drafting.');
 
   onStage('drafting');
-  const draftArticle = await openaiJson({
+  const draftArticle = await timedStep('drafting', () => openaiJson({
     model: writingModel,
     schema: articleJsonSchema,
     temperature: 0.2,
@@ -1423,7 +1986,8 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           task: 'Convert the source-ranked evidence packet into the required article JSON. Use only facts supported by the evidence packet, targeted research briefs, and listed sources. Preserve all requested coverage requirements.',
           currentDate,
           freshnessRules: `Use ${currentDate} as the time context. Include an "As of ${currentDate}" framing sentence in the summary or opening body section. Prefer reliable sources from the last 24 months. For fast-moving topics, prioritize 2025-2026 sources. If older data is used, explain why it remains relevant, authoritative, or the latest available.`,
-          bodyRules: 'Write a substantive article, not a short chart caption. Return 4 to 7 body sections and at least 10 total paragraphs. Most paragraphs should be 120 to 190 words and include evidence, context, caveats, counterpoints, and interpretation. Not every paragraph needs a chart; many paragraphs should have empty chartIds. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Paragraphs must be objects with text, chartIds, and sourceIds. Put relevant source IDs on every evidence-bearing paragraph. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when multiple relevant sources exist. Add sourceIds to conclusion paragraphs when they restate factual judgments. Put relevant chart IDs after the paragraph they support. Every chart id must appear in at least one paragraph chartIds array.',
+          qualityRules: 'Before returning, self-check for unsupported claims, stale evidence, missing coverage, bad chart fit, loaded wording, unfair framing, citation gaps, and safety risks. Delete or explicitly mark uncertain any idea that cannot be supported by the listed source IDs. Do not rely on a later full-article revision pass.',
+          bodyRules: 'Write a substantive article, not a short chart caption. Return 4 to 7 body sections and at least 10 total paragraphs only if the available sources support that much coverage; otherwise return fewer, better-supported paragraphs. Most paragraphs should include evidence, context, caveats, counterpoints, and interpretation. Every body paragraph must include at least one valid sourceIds entry from consultedSources. If a paragraph would have no sourceIds, omit that paragraph. Not every paragraph needs a chart; use chartIds only when a visualization directly supports that paragraph. Do not include a Sources, References, Bibliography, Works Cited, or citation-list section in body. Do not place raw URLs or markdown links in body paragraphs. Put all source details only in the sources array. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when multiple relevant sources exist. Every generated chart must be referenced by at least one paragraph that also has sourceIds.',
           claimRules: 'For claim prompts, extract up to 3 user-made claims. For question/comparison prompts, return up to 3 evidence findings instead of fake claims. Each item must still include claim, verdict, confidenceScore, confidenceLabel, verdictSummary, support, and sourceIds. Use verdict "unsure" when public evidence is insufficient, and explain what was and was not found.',
           chartRules: 'Return 2 to 4 visualizations with stable id values. Each visualization must answer a distinct question and include question, takeaway, units, sourceNote, limitation, note, and data. Do not create orphan charts. If a chart covers military spending, economic comparison, timeline, source mix, or any other topic, the body must contain relevant text and attach that chart id to that paragraph. Use timeline for dated event sequences. Timeline date fields must be human-readable and precision-honest; use labels like "4.5B years ago", "350M years ago", "May 2024", or "2026" rather than fake exact dates. Use metrics for standalone facts or mixed units. Use comparison for side-by-side estimates, claims, people, or categories. Use delta for two-point before/after or first/last changes. Use ranked_bar for ranked lists, long category labels, and ordered comparisons. Use fact_table for legal criteria, definitions, categorical facts, or single facts. Use evidence_matrix for claim-by-claim support, contradiction, uncertainty, source mapping, or argument coverage. Use line or area only for one continuous metric with 3 or more comparable time points. Use bar for discrete comparisons with the same units, scorecard for qualitative evidence/claim support, and pie only for parts of the same whole. Never use zero as a placeholder for unavailable data.',
           categoryRules: 'Choose the best category from existingCategories whenever one reasonably fits. Reuse exact spelling and capitalization. Create a new category only if the existing list has no good fit.',
@@ -1432,91 +1996,133 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
           claimPlan,
           existingCategories,
           evidencePacket,
-          targetedResearch: researchBriefs,
-          consultedSources: usableSources
+          targetedResearch: compactBriefs,
+          consultedSources: draftSources
         })
       }
     ]
-  });
+  }), { model: writingModel });
 
-  onStage('review');
-  const articleReview = await openaiJson({
-    model: reviewModel,
-    schema: reviewJsonSchema,
-    temperature: 0.1,
-    input: [
-      {
-        role: 'system',
-        content: 'Review the draft as both a skeptical fact-checker and a neutrality/bias editor. Do not rewrite the article. Return concise JSON revision requirements only.'
-      },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          task: 'Find unsupported claims, stale evidence, missing coverage, bad chart fit, loaded wording, unfair framing, citation gaps, and safety risks.',
-          currentDate,
-          originalRequest: input,
-          claimPlan,
-          evidencePacket,
-          targetedResearch: researchBriefs,
-          consultedSources: usableSources,
-          draftArticle
-        })
-      }
-    ]
-  });
+  let generatedRaw = draftArticle;
+  const enablePolish = process.env.OPENAI_ENABLE_POLISH_PASS === 'true';
+  if (enablePolish) {
+    onStage('polish', 'Polishing article structure and source clarity.');
+    generatedRaw = await timedStep('polish', () => polishGeneratedArticle({
+      writingModel,
+      input,
+      claimPlan,
+      existingCategories,
+      currentDate,
+      evidencePacket,
+      targetedResearch: compactBriefs,
+      consultedSources: draftSources,
+      article: generatedRaw
+    }), { model: writingModel });
+  } else {
+    recordTiming('polish_skipped', performance.now(), { reason: 'disabled' });
+  }
 
-  onStage('revision');
-  let generatedRaw = await openaiJson({
-    model: writingModel,
-    schema: articleJsonSchema,
-    temperature: 0.15,
-    input: [
-      { role: 'system', content: systemPrompt },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          task: 'Revise the draft article to satisfy every required review item. Use only the research brief and consulted sources. Preserve the required JSON shape.',
-          currentDate,
-          revisionRules: [
-            'Resolve or clearly disclose every skeptical fact-check issue.',
-            'Resolve neutrality issues without making the article bland.',
-            'Remove unsupported claims rather than inventing support.',
-            'Keep article text substantial with at least 10 total paragraphs across 4 to 7 sections.',
-            'Every paragraph object must include sourceIds. Evidence-bearing paragraphs should include sourceIds for the sources supporting that paragraph. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when multiple relevant sources exist.',
-            'Keep chart IDs attached only to paragraphs they directly support.',
-            'Do not add sources that were not consulted.'
-          ],
-          originalRequest: input,
-          claimPlan,
-          existingCategories,
-          evidencePacket,
-          targetedResearch: researchBriefs,
-          consultedSources: usableSources,
-          draftArticle,
-          articleReview,
-          requiredShape: articleJsonShape
-        })
-      }
-    ]
-  });
+  const enableFullReview = process.env.OPENAI_ENABLE_FULL_REVIEW === 'true';
+  if (enableFullReview) {
+    onStage('review');
+    const articleReview = await timedStep('review', () => openaiJson({
+      model: reviewModel,
+      schema: reviewJsonSchema,
+      temperature: 0.1,
+      input: [
+        {
+          role: 'system',
+          content: 'Review the draft as both a skeptical fact-checker and a neutrality/bias editor. Do not rewrite the article. Return concise JSON revision requirements only.'
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            task: 'Find unsupported claims, stale evidence, missing coverage, bad chart fit, loaded wording, unfair framing, citation gaps, and safety risks.',
+            currentDate,
+            originalRequest: input,
+            claimPlan,
+            evidencePacket,
+            targetedResearch: compactBriefs,
+            consultedSources: draftSources,
+            draftArticle
+          })
+        }
+      ]
+    }), { model: reviewModel });
+
+    if (reviewRequiresFullRevision(articleReview)) {
+      onStage('revision');
+      generatedRaw = await timedStep('revision', () => openaiJson({
+        model: writingModel,
+        schema: articleJsonSchema,
+        temperature: 0.15,
+        input: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              task: 'Revise the draft article to satisfy every required review item. Use only the research brief and consulted sources. Preserve the required article JSON shape.',
+              currentDate,
+              revisionRules: [
+                'Resolve or clearly disclose every skeptical fact-check issue.',
+                'Resolve neutrality issues without making the article bland.',
+                'Remove unsupported claims rather than inventing support.',
+                'Keep article text substantial with at least 10 total paragraphs across 4 to 7 sections.',
+                'Every paragraph object must include sourceIds. Evidence-bearing paragraphs should include sourceIds for the sources supporting that paragraph. Use 2 or 3 sourceIds for evidence-heavy, comparison, statistical, or controversial paragraphs when multiple relevant sources exist.',
+                'Keep chart IDs attached only to paragraphs they directly support.',
+                'Do not add sources that were not consulted.'
+              ],
+              originalRequest: input,
+              claimPlan,
+              existingCategories,
+              evidencePacket,
+              targetedResearch: compactBriefs,
+              consultedSources: draftSources,
+              draftArticle,
+              articleReview,
+              requiredShape: articleJsonShape
+            })
+          }
+        ]
+      }), { model: writingModel });
+    } else {
+      recordTiming('revision_skipped', performance.now(), { reason: 'review_clear' });
+    }
+  } else {
+    recordTiming('review_skipped', performance.now(), { reason: 'fast_pipeline' });
+    recordTiming('revision_skipped', performance.now(), { reason: 'fast_pipeline' });
+  }
 
   let citationAudit = null;
-  const maxCitationRepairAttempts = 2;
+  const configuredRepairAttempts = Number(process.env.OPENAI_CITATION_REPAIR_ATTEMPTS ?? 1);
+  const maxCitationRepairAttempts = Number.isFinite(configuredRepairAttempts) ? Math.max(0, Math.floor(configuredRepairAttempts)) : 1;
   for (let attempt = 0; attempt <= maxCitationRepairAttempts; attempt += 1) {
-    generatedRaw.sources = normalizeSources(generatedRaw.sources, responseSources);
-    if (usableSources.length >= 4) {
-      generatedRaw = removeUnusableSourcesFromArticle(generatedRaw, usableSources);
+    const rawLoopSources = Array.isArray(generatedRaw.sources) ? generatedRaw.sources : [];
+    generatedRaw.sources = normalizeSources(rawLoopSources, draftSources);
+    const loopRemap = sourceIdRemap(rawLoopSources, generatedRaw.sources);
+    const loopValidIds = new Set(generatedRaw.sources.map((source) => source.id));
+    generatedRaw.keyClaims = Array.isArray(generatedRaw.keyClaims)
+      ? generatedRaw.keyClaims.map((claim) => ({
+        ...claim,
+        sourceIds: remapSourceIds(claim.sourceIds, loopRemap, loopValidIds)
+      }))
+      : [];
+    generatedRaw.body = remapBodySourceIds(generatedRaw.body, loopRemap, loopValidIds);
+    if (draftSources.length >= 4) {
+      generatedRaw = removeUnusableSourcesFromArticle(generatedRaw, draftSources);
     }
     generatedRaw.keyClaims = repairClaimSourceIds(generatedRaw.keyClaims, generatedRaw.sources);
     generatedRaw.body = repairParagraphSourceIds(generatedRaw.body, generatedRaw.sources);
+    generatedRaw = enforceParagraphSourceCoverage(generatedRaw);
     onStage('citation_audit');
-    citationAudit = await auditGeneratedArticle({
+    citationAudit = await timedStep(`citation_audit_${attempt + 1}`, () => auditGeneratedArticle({
       reviewModel,
       input,
       claimPlan,
       article: generatedRaw,
-      consultedSources: usableSources.length ? usableSources : ingestedSources
-    });
+      consultedSources: draftSources
+    }), { model: reviewModel, attempt: attempt + 1 });
+    citationAudit = citationAuditWithBodyQuality(citationAudit, generatedRaw);
 
     const blockingIssues = Array.isArray(citationAudit.blockingIssues) ? citationAudit.blockingIssues : [];
     if (citationAudit.passed || !blockingIssues.length) break;
@@ -1530,58 +2136,31 @@ async function performArticleGeneration(input, userId, onStage = () => {}) {
     }
 
     onStage(`repair_attempt_${attempt + 1}`, `Repair attempt ${attempt + 1} of ${maxCitationRepairAttempts}: fixing citation gaps or marking unsupported claims as uncertain.`);
-    generatedRaw = await repairArticleCitations({
+    generatedRaw = await timedStep(`citation_repair_${attempt + 1}`, () => repairArticleCitations({
       writingModel,
       input,
       claimPlan,
       existingCategories,
       currentDate,
-      researchBrief: JSON.stringify({ evidencePacket, targetedResearch: researchBriefs }),
-      consultedSources: usableSources.length ? usableSources : ingestedSources,
+      researchBrief: compactCitationRepairContext({ evidencePacket, researchBriefs: compactBriefs, citationAudit }),
+      consultedSources: draftSources,
       article: generatedRaw,
       citationAudit,
       attempt: attempt + 1
-    });
+    }), { model: writingModel, attempt: attempt + 1 });
   }
 
-  const generated = normalizeGeneratedArticle(generatedRaw, input.category || 'Research');
+  const generated = normalizeGeneratedArticle(pruneUncitedSources(generatedRaw), input.category || 'Research');
   onStage('saving');
-  const insertPayload = {
-    title: generated.title,
-    slug: uniqueSlug(generated.slug),
-    subtitle: generated.subtitle,
-    summary: generated.summary,
-    category: generated.category,
-    status: 'draft',
-    body: generated.body,
-    claims_json: generated.keyClaims,
-    charts_json: generated.charts,
-    sources_json: generated.sources,
-    created_by: userId
-  };
+  const article = await timedStep('saving', () => saveGeneratedArticle(generated, userId));
 
-  const { rows } = await query(
-    `insert into articles
-      (title, slug, subtitle, summary, category, status, body, claims_json, charts_json, sources_json, created_by)
-     values
-      ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11)
-     returning *`,
-    [
-      insertPayload.title,
-      insertPayload.slug,
-      insertPayload.subtitle,
-      insertPayload.summary,
-      insertPayload.category,
-      insertPayload.status,
-      JSON.stringify(insertPayload.body),
-      JSON.stringify(insertPayload.claims_json),
-      JSON.stringify(insertPayload.charts_json),
-      JSON.stringify(insertPayload.sources_json),
-      userId
-    ]
-  );
+  recordTiming('total', generationStartedAt, {
+    targetCount: targets.length,
+    sourceCount: normalizedConsultedSources.length,
+    usableSourceCount: usableSources.length
+  });
 
-  return rows[0];
+  return { article, generated, timings };
 }
 
 app.get('/api/health', (_req, res) => {
@@ -1679,6 +2258,24 @@ if (!isProduction) {
       bootstrapAdminCount: String(process.env.CLERK_ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean).length
     });
   });
+
+  app.get('/api/debug/generation-jobs', (_req, res) => {
+    res.json({
+      jobs: [...generationJobs.values()]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 20)
+        .map((job) => ({
+          id: job.id,
+          userId: job.userId,
+          status: job.status,
+          stage: job.stage,
+          stageLabel: job.stageLabel,
+          timings: job.timings || [],
+          error: job.error,
+          createdAt: job.createdAt
+        }))
+    });
+  });
 }
 
 app.get('/api/auth/session', requireDatabase, async (req, res) => {
@@ -1747,6 +2344,7 @@ app.post('/api/generate-article', requireDatabase, async (req, res) => {
     status: 'queued',
     stage: 'queued',
     stageLabel: generationStages.queued,
+    timings: [],
     article: null,
     error: '',
     createdAt: Date.now()
@@ -1762,17 +2360,146 @@ app.post('/api/generate-article', requireDatabase, async (req, res) => {
         stageLabel: label || stageLabel(stage, generationStages.queued)
       });
     };
+    const setTimings = (timings) => {
+      generationJobs.set(jobId, {
+        ...generationJobs.get(jobId),
+        timings
+      });
+    };
     setStage('claim_extraction');
-    const article = await performArticleGeneration(parsed.data, ownerId, setStage);
+    const { article, timings } = await performArticleGeneration(parsed.data, ownerId, setStage, setTimings);
+    console.info('[article-generation-timings]', JSON.stringify({
+      jobId,
+      userId: ownerId,
+      timings
+    }));
     generationJobs.set(jobId, {
       ...generationJobs.get(jobId),
       status: 'completed',
       stage: 'completed',
       stageLabel: generationStages.completed,
+      timings,
       article
     });
+    await sendArticleReadyEmail({ userId: ownerId, article, prompt: parsed.data.prompt });
   } catch (error) {
     if (reservedAnonymousGeneration) releaseAnonymousGeneration(req, anonymousToken);
+    const failedJob = generationJobs.get(jobId);
+    console.info('[article-generation-timings]', JSON.stringify({
+      jobId,
+      userId: ownerId,
+      status: 'failed',
+      stage: failedJob?.stage,
+      timings: failedJob?.timings || []
+    }));
+    console.error(error);
+    generationJobs.set(jobId, {
+      ...generationJobs.get(jobId),
+      status: 'failed',
+      stage: 'failed',
+      stageLabel: generationStages.failed,
+      error: publicGenerationError(error)
+    });
+  }
+});
+
+app.post('/api/articles/:id/regenerate', requireDatabase, requireUser, requireAdmin, async (req, res) => {
+  if (!openai) {
+    res.status(503).json({ error: 'OpenAI is not configured. Set OPENAI_API_KEY.' });
+    return;
+  }
+
+  const { rows } = await query('select * from articles where id = $1 limit 1', [req.params.id]);
+  const currentArticle = rows[0];
+  if (!currentArticle || currentArticle.status === 'deleted') {
+    res.status(404).json({ error: 'Article not found.' });
+    return;
+  }
+
+  const currentBody = Array.isArray(currentArticle.body)
+    ? currentArticle.body.map((section) => `${section.heading}: ${(section.paragraphs || []).map((paragraph) => paragraph.text || paragraph).join(' ')}`).join('\n\n')
+    : '';
+  const input = {
+    prompt: [
+      `Regenerate and improve this existing CiteDrop article while preserving the core topic.`,
+      `Title: ${currentArticle.title}`,
+      currentArticle.subtitle ? `Subtitle: ${currentArticle.subtitle}` : '',
+      currentArticle.summary ? `Current summary: ${currentArticle.summary}` : '',
+      currentBody ? `Current body context:\n${currentBody.slice(0, 5000)}` : '',
+      `Requirements: produce a source-controlled replacement article with stronger sourcing, source-backed paragraphs only, no unsupported claims, and no midstream opening.`
+    ].filter(Boolean).join('\n\n'),
+    tone: 'Professional and evidence-focused',
+    category: currentArticle.category || 'Research',
+    sourceUrls: Array.isArray(currentArticle.sources_json)
+      ? currentArticle.sources_json.map((source) => source.url).filter(Boolean).slice(0, 12)
+      : []
+  };
+
+  const jobId = randomUUID();
+  const ownerId = req.user.id;
+  generationJobs.set(jobId, {
+    id: jobId,
+    userId: ownerId,
+    anonymousToken: '',
+    status: 'queued',
+    stage: 'queued',
+    stageLabel: generationStages.queued,
+    timings: [],
+    article: null,
+    error: '',
+    regenerateArticleId: currentArticle.id,
+    createdAt: Date.now()
+  });
+  res.status(202).json({ jobId });
+
+  try {
+    const setStage = (stage, label = '') => {
+      generationJobs.set(jobId, {
+        ...generationJobs.get(jobId),
+        status: 'running',
+        stage,
+        stageLabel: label || stageLabel(stage, generationStages.queued)
+      });
+    };
+    const setTimings = (timings) => {
+      generationJobs.set(jobId, {
+        ...generationJobs.get(jobId),
+        timings
+      });
+    };
+
+    setStage('claim_extraction');
+    const { article: updatedArticle, timings } = await performArticleGeneration(
+      input,
+      ownerId,
+      setStage,
+      setTimings,
+      (generated) => updateGeneratedArticle(currentArticle.id, generated, ownerId, currentArticle)
+    );
+    console.info('[article-generation-timings]', JSON.stringify({
+      jobId,
+      userId: ownerId,
+      regenerateArticleId: currentArticle.id,
+      timings
+    }));
+    generationJobs.set(jobId, {
+      ...generationJobs.get(jobId),
+      status: 'completed',
+      stage: 'completed',
+      stageLabel: generationStages.completed,
+      timings,
+      article: updatedArticle
+    });
+  } catch (error) {
+    const failedJob = generationJobs.get(jobId);
+    console.info('[article-generation-timings]', JSON.stringify({
+      jobId,
+      userId: ownerId,
+      regenerateArticleId: currentArticle.id,
+      status: 'failed',
+      stage: failedJob?.stage,
+      timings: failedJob?.timings || []
+    }));
     console.error(error);
     generationJobs.set(jobId, {
       ...generationJobs.get(jobId),
@@ -1793,7 +2520,17 @@ app.get('/api/generation-jobs/:id', requireDatabase, async (req, res) => {
     res.status(404).json({ error: 'Generation job not found.' });
     return;
   }
-  res.json({ job: { id: job.id, status: job.status, stage: job.stage, stageLabel: job.stageLabel, article: job.article, error: job.error } });
+  res.json({
+    job: {
+      id: job.id,
+      status: job.status,
+      stage: job.stage,
+      stageLabel: job.stageLabel,
+      timings: job.timings || [],
+      article: job.article,
+      error: job.error
+    }
+  });
 });
 
 app.get('/api/articles', requireDatabase, async (req, res) => {
@@ -1808,6 +2545,7 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
   const anonymousOwner = `anonymous:${anonymousToken}`;
   const includeDrafts = req.query.includeDrafts === 'true' && Boolean(user || anonymousToken);
   const ownOnly = includeDrafts && (!user || req.query.mine === 'true' || user?.role !== 'admin' || req.query.scope !== 'all');
+  const adminAllArticles = includeDrafts && user?.role === 'admin' && req.query.scope === 'all' && !ownOnly;
 
   const visibilityFilters = [];
   const visibilityValues = [];
@@ -1845,8 +2583,11 @@ app.get('/api/articles', requireDatabase, async (req, res) => {
       `select * from articles ${where} order by created_at desc limit $${values.length + 1} offset $${values.length + 2}`,
       [...values, pageSize, offset]
     );
+    const articles = adminAllArticles
+      ? await attachCreatorEmails(articlesResult.rows)
+      : articlesResult.rows;
     res.json({
-      articles: articlesResult.rows,
+      articles,
       count: countResult.rows[0]?.count || 0,
       categories: categoriesResult.rows.map((row) => row.category)
     });

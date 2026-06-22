@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { generateArticle } from '../lib/api.js';
 import { trackEvent } from '../lib/analytics.js';
 import { CheckCircle2, Loader2, WandSparkles } from 'lucide-react';
+import { useAuth } from '../state/AuthContext.jsx';
 
 const pipelineStages = [
   { key: 'claim_extraction', label: 'Interpreting prompt' },
@@ -10,6 +11,7 @@ const pipelineStages = [
   { key: 'evidence_synthesis', label: 'Ranking sources' },
   { key: 'counterevidence', label: 'Checking counterevidence' },
   { key: 'drafting', label: 'Writing the first draft' },
+  { key: 'polish', label: 'Polishing the article' },
   { key: 'review', label: 'Running fact-check and bias review' },
   { key: 'revision', label: 'Revising the article' },
   { key: 'citation_audit', label: 'Auditing citations' },
@@ -24,6 +26,7 @@ const stageDescriptions = {
   evidence_synthesis: 'Scoring sources by relevance, authority, recency, specificity, primary-source value, and whether readable text was verified.',
   counterevidence: 'Looking for opposing evidence, limitations, stale data, missing context, and reasons a skeptical reader might reject the argument.',
   drafting: 'Writing only from the ranked evidence packet and attaching source buttons to evidence-bearing paragraphs.',
+  polish: 'Improving section depth, source clarity, chart placement, and removing filler without adding unsupported facts.',
   review: 'Running a skeptical fact-check and neutrality review for unsupported claims, weak citations, missing counterpoints, and biased wording.',
   revision: 'Revising the draft to fix review issues, add caveats, improve source support, and remove overclaims.',
   citation_audit: 'Checking that factual claims and paragraphs are tied to real source records before the draft is saved.',
@@ -41,6 +44,7 @@ function stageBase(stage = '') {
 }
 
 export default function PromptBuilder({ onGenerated }) {
+  const { user } = useAuth();
   const [form, setForm] = useState({
     tone: 'Professional and persuasive',
     prompt: ''
@@ -90,6 +94,9 @@ export default function PromptBuilder({ onGenerated }) {
             <p className="text-sm font-bold uppercase text-acid">Generation in progress</p>
             <h2 className="mt-2 text-2xl font-black">{job?.stageLabel || 'Building your article'}</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">{stageDescriptions[stageBase(job?.stage)] || 'CiteDrop is moving this article through the research, verification, writing, and citation workflow.'}</p>
+            <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-white/70">
+              {user ? 'You can leave this page if you need to. We will email you when the draft is ready to review and publish.' : 'Keep this page open while your free draft is generated.'}
+            </p>
           </div>
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

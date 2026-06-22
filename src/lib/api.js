@@ -18,7 +18,13 @@ async function request(path, options = {}) {
     ...(await authHeaders()),
     ...options.headers
   };
-  const response = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options, headers });
+  const url = `${API_BASE}${path}`;
+  let response;
+  try {
+    response = await fetch(url, { credentials: 'include', ...options, headers });
+  } catch (error) {
+    throw new Error(`Unable to reach API at ${url}. ${error.message}`);
+  }
   if (!response.ok) {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -71,7 +77,7 @@ async function waitForGenerationJob(jobId, onProgress) {
     await sleep(generationPollInterval);
     const result = await request(`/api/generation-jobs/${jobId}`);
     onProgress?.(result.job);
-    if (result.job.status === 'completed') return { article: result.job.article };
+    if (result.job.status === 'completed') return { article: result.job.article, job: result.job };
     if (result.job.status === 'failed') throw new Error(result.job.error || 'Article generation failed.');
   }
   throw new Error('Article generation is taking longer than expected. Refresh your article list in a minute.');
@@ -82,6 +88,13 @@ export function updateArticle(id, payload) {
     method: 'PATCH',
     body: JSON.stringify(payload)
   });
+}
+
+export function regenerateArticle(id, onProgress) {
+  return request(`/api/articles/${id}/regenerate`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  }).then((result) => waitForGenerationJob(result.jobId, onProgress));
 }
 
 export function deleteArticle(id) {

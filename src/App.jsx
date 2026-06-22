@@ -24,9 +24,9 @@ export default function App() {
         <Route
           path="/dashboard"
           element={(
-            <PublicFrame>
+            <ClerkFrame>
               <DashboardPage />
-            </PublicFrame>
+            </ClerkFrame>
           )}
         />
         <Route
