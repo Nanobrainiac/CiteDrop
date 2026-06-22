@@ -20,9 +20,17 @@ create table if not exists articles (
   charts_json jsonb not null default '[]'::jsonb,
   sources_json jsonb not null default '[]'::jsonb,
   created_by text,
+  facebook_post_id text,
+  facebook_posted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table articles
+  add column if not exists facebook_post_id text;
+
+alter table articles
+  add column if not exists facebook_posted_at timestamptz;
 
 alter table articles
   drop constraint if exists articles_created_by_fkey;

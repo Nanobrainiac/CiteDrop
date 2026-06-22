@@ -707,6 +707,68 @@ async function attachCreatorEmails(articles = []) {
   }));
 }
 
+function facebookArticleMessage(article = {}) {
+  const summary = String(article.summary || '').trim();
+  const title = String(article.title || 'New CiteDrop article').trim();
+  return [
+    title,
+    summary ? `\n${summary}` : '',
+    '\nRead the full article:'
+  ].join('\n').slice(0, 1500);
+}
+
+async function postPublishedArticleToFacebook(article = {}) {
+  if (!article?.id || article.status !== 'published' || article.facebook_post_id) return article;
+
+  const pageId = process.env.FACEBOOK_PAGE_ID;
+  const pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+  if (!pageId || !pageAccessToken) {
+    console.info('Facebook post not sent; configure FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN.');
+    return article;
+  }
+
+  const link = publicArticleUrl(article.slug);
+  if (!link) {
+    console.warn(`Facebook post not sent for article ${article.id}; article URL is unavailable.`);
+    return article;
+  }
+
+  const graphVersion = process.env.FACEBOOK_GRAPH_API_VERSION || 'v25.0';
+  const endpoint = `https://graph.facebook.com/${graphVersion}/${encodeURIComponent(pageId)}/feed`;
+  const body = new URLSearchParams({
+    access_token: pageAccessToken,
+    message: facebookArticleMessage(article),
+    link
+  });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.id) {
+      console.warn(`Facebook post failed for article ${article.id}: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+      return article;
+    }
+
+    const { rows } = await query(
+      `update articles
+       set facebook_post_id = $1,
+           facebook_posted_at = now()
+       where id = $2
+         and facebook_post_id is null
+       returning *`,
+      [payload.id, article.id]
+    );
+    return rows[0] || { ...article, facebook_post_id: payload.id, facebook_posted_at: new Date().toISOString() };
+  } catch (error) {
+    console.warn(`Facebook post failed for article ${article.id}: ${error.message}`);
+    return article;
+  }
+}
+
 async function anonymousArticleCount(token) {
   const { rows } = await query(
     `select count(*)::int as count
@@ -2667,7 +2729,8 @@ async function updateArticleById(req, res) {
       res.status(404).json({ error: 'Article not found.' });
       return;
     }
-    res.json({ article: rows[0] });
+    const article = await postPublishedArticleToFacebook(rows[0]);
+    res.json({ article });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Unable to update article.' });
@@ -2698,7 +2761,8 @@ app.patch('/api/articles/:id', requireDatabase, requireUser, async (req, res) =>
       res.status(404).json({ error: 'Article not found.' });
       return;
     }
-    res.json({ article: rows[0] });
+    const article = await postPublishedArticleToFacebook(rows[0]);
+    res.json({ article });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Unable to update article.' });

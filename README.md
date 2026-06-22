@@ -107,6 +107,18 @@ The backend uses the OpenAI Responses API with web search for article generation
 
 Set `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_APP_URL` to email signed-in users when article generation completes. Anonymous generations do not send email.
 
+## Facebook Page Auto-Posting
+
+Set these config vars to automatically post an article link to your Facebook Page when its status first changes to `published`:
+
+```bash
+FACEBOOK_PAGE_ID=your-facebook-page-id
+FACEBOOK_PAGE_ACCESS_TOKEN=your-page-access-token
+FACEBOOK_GRAPH_API_VERSION=v25.0
+```
+
+The token must be a Page access token that can create Page posts. CiteDrop posts to `/{page-id}/feed` with the article title, summary, and public article link. Successful post IDs are stored on the article so republishing or later edits do not create duplicate Facebook posts.
+
 ## Unpublished Draft Reminders
 
 Run this command daily from Heroku Scheduler to remind users about draft articles they have not published:
