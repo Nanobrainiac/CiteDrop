@@ -68,6 +68,7 @@ export default function Layout({ children }) {
             <div className="mt-4 grid gap-2">
               <Link className="hover:text-acid" to="/#latest">Browse articles</Link>
               <Link className="hover:text-acid" to="/dashboard">Create article</Link>
+              <Link className="hover:text-acid" to="/privacy">Privacy policy</Link>
               {user?.role === 'admin' ? <Link className="hover:text-acid" to="/admin">Admin</Link> : null}
             </div>
           </div>

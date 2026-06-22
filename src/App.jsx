@@ -12,6 +12,7 @@ const ArticlePage = lazy(() => import('./pages/ArticlePage.jsx'));
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const AdminPage = lazy(() => import('./pages/AdminPage.jsx'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage.jsx'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'));
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
     <Suspense fallback={<LoadingState label="Loading page" />}>
       <Routes>
         <Route path="/" element={<PublicFrame><HomePage /></PublicFrame>} />
+        <Route path="/privacy" element={<PublicFrame><PrivacyPage /></PublicFrame>} />
         <Route path="/articles/:slug" element={<ClerkFrame><ArticlePage /></ClerkFrame>} />
         <Route path="/login" element={<ClerkFrame><LoginPage /></ClerkFrame>} />
         <Route
