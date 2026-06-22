@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { clerkMiddleware } from '@clerk/express';
 import { query, requireDatabase } from './db.js';
 import { currentUser, getUserFromRequest, requireAdmin, requireUser } from './auth.js';
-import { ogImageVersion, renderArticleOgImage } from './og.js';
+import { ogImageHeight, ogImageVersion, ogImageWidth, renderArticleOgImage } from './og.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -821,8 +821,8 @@ function injectArticleMeta(html, article, req) {
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content="${ogImageWidth}" />
+    <meta property="og:image:height" content="${ogImageHeight}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(article.title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />

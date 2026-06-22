@@ -2,7 +2,9 @@ import sharp from 'sharp';
 
 const imageCache = new Map();
 const maxCacheEntries = 100;
-export const ogImageVersion = 'og-v2';
+export const ogImageVersion = 'og-v3';
+export const ogImageWidth = 2400;
+export const ogImageHeight = 1260;
 
 function escapeXml(value = '') {
   return String(value)
@@ -67,7 +69,7 @@ export async function renderArticleOgImage(article) {
   )).join('');
 
   const svg = `
-    <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+    <svg width="${ogImageWidth}" height="${ogImageHeight}" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stop-color="#0b0c0b"/>
@@ -105,7 +107,7 @@ export async function renderArticleOgImage(article) {
     </svg>
   `;
 
-  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 6, adaptiveFiltering: true }).toBuffer();
   cacheSet(cacheKey, png);
   return png;
 }
